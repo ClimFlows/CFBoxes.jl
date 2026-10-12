@@ -165,12 +165,13 @@ Get the size of halo cells in each direction.
 @inline halo_size(::Box3D{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hx, Hy, Hz)
 
 """
-    interior(box::AbstractBox, data::Array) -> Array
+    interior(box::AbstractBox, data::AbstractArray) -> SubArray
 
-Extract the interior region of a data array by removing halo cells.
+View of the interior region of a data array, without its halo cells, on any grid location (e.g. on the dual grid of a
+bounded direction, the interior includes both wall faces).
 """
-interior(::Box2D{Mx, Mz, Hx, Hz}, data::Array) where {Mx, Mz, Hx, Hz} = data[1+Hx:end-Hx, 1+Hz:end-Hz]
-interior(::Box3D{Mx, My, Mz, Hx, Hy, Hz}, data::Array) where {Mx, My, Mz, Hx, Hy, Hz} = data[1+Hx:end-Hx, 1+Hy:end-Hy, 1+Hz:end-Hz]
+interior(::Box2D{Mx, Mz, Hx, Hz}, data::AbstractArray) where {Mx, Mz, Hx, Hz} = @view data[1+Hx:end-Hx, 1+Hz:end-Hz]
+interior(::Box3D{Mx, My, Mz, Hx, Hy, Hz}, data::AbstractArray) where {Mx, My, Mz, Hx, Hy, Hz} = @view data[1+Hx:end-Hx, 1+Hy:end-Hy, 1+Hz:end-Hz]
 
 """
     add_halo(box::AbstractBox, data::Array) -> Array
@@ -238,9 +239,9 @@ Get the primal grid vectors of the box (incl. halo cells) in the x/y/z-direction
 
 Get the dual grid vectors of the box (incl. halo cells) in the x/y/z-direction.
 """
-@inline Xgrid(::AbstractBoxHalo, dx) = [Xpoint(box, dz, I) for I in 1:Xdim(box)]
-@inline Ygrid(::AbstractBoxHalo, dy) = [Ypoint(box, dy, J) for J in 1:Ydim(box)]
-@inline Zgrid(::AbstractBoxHalo, dz) = [Zpoint(box, dz, K) for K in 1:Zdim(box)]
+@inline Xgrid(box::AbstractBoxHalo, dx) = [Xpoint(box, dx, I) for I in 1:Xdim(box)]
+@inline Ygrid(box::AbstractBoxHalo, dy) = [Ypoint(box, dy, J) for J in 1:Ydim(box)]
+@inline Zgrid(box::AbstractBoxHalo, dz) = [Zpoint(box, dz, K) for K in 1:Zdim(box)]
 
 """
     xgrid_interior(box::AbstractBox, dx) -> Vector
@@ -263,6 +264,22 @@ Get the dual grid vectors of the box interior (excl. halo) in the x/y/z-directio
 @inline Xgrid_interior(box, dx) = Xgrid(box, dx)[Xrange_interior(box)]
 @inline Ygrid_interior(box, dy) = Ygrid(box, dy)[Yrange_interior(box)]
 @inline Zgrid_interior(box, dz) = Zgrid(box, dz)[Zrange_interior(box)]
+
+"""
+    coordinates(box::AbstractBox, spacing, location::Symbol) -> Tuple
+
+Coordinates of the interior points of the grid `location` (e.g. `:xz`, `:Xz`; see `alloc`), one vector per dimension,
+matching `interior(box, data)` for data on that location. `spacing` holds the grid spacing in each dimension, e.g.
+`(dx, dz)` in 2D.
+"""
+coordinates(box::AbstractBox, spacing, location::Symbol) =
+    map((letter, d) -> grid_interior(box, d, letter), Tuple(String(location)), Tuple(spacing))
+
+grid_interior(box, d, letter::Char) =
+    letter == 'x' ? xgrid_interior(box, d) : letter == 'X' ? Xgrid_interior(box, d) :
+    letter == 'y' ? ygrid_interior(box, d) : letter == 'Y' ? Ygrid_interior(box, d) :
+    letter == 'z' ? zgrid_interior(box, d) : letter == 'Z' ? Zgrid_interior(box, d) :
+    throw(ArgumentError("unknown grid letter $letter"))
 
 """
     alloc_xz(F::Type, box::Box2D, dims...) -> Array
@@ -309,3 +326,23 @@ Get the dual grid vectors of the box interior (excl. halo) in the x/y/z-directio
 @inline alloc_XyZ(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), ydim(box), Zdim(box), dims...)
 @inline alloc_xYZ(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), Ydim(box), Zdim(box), dims...)
 @inline alloc_XYZ(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), Ydim(box), Zdim(box), dims...)
+
+"""
+    alloc(F::Type, box::AbstractBox, location::Symbol, dims...) -> Array
+
+Allocate an array on the grid `location` of the box: one letter per dimension, lower case for the primal grid and
+upper case for the dual grid, e.g. `:xz`, `:Xz`, `:xZ`, `:XZ` in 2D and `:xyz` … `:XYZ` in 3D (see `alloc_xz` etc.).
+"""
+alloc(F::Type, box::AbstractBox, location::Symbol, dims...) = alloc(F, box, Val(location), dims...)
+alloc(F::Type, box::Box2D, ::Val{:xz}, dims...) = alloc_xz(F, box, dims...)
+alloc(F::Type, box::Box2D, ::Val{:Xz}, dims...) = alloc_Xz(F, box, dims...)
+alloc(F::Type, box::Box2D, ::Val{:xZ}, dims...) = alloc_xZ(F, box, dims...)
+alloc(F::Type, box::Box2D, ::Val{:XZ}, dims...) = alloc_XZ(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:xyz}, dims...) = alloc_xyz(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:Xyz}, dims...) = alloc_Xyz(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:xYz}, dims...) = alloc_xYz(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:xyZ}, dims...) = alloc_xyZ(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:XYz}, dims...) = alloc_XYz(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:XyZ}, dims...) = alloc_XyZ(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:xYZ}, dims...) = alloc_xYZ(F, box, dims...)
+alloc(F::Type, box::Box3D, ::Val{:XYZ}, dims...) = alloc_XYZ(F, box, dims...)

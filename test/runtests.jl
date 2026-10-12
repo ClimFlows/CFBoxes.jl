@@ -105,5 +105,25 @@ F = Float64
         end
     end
 
+    # each grid location: interior is a view, and its coordinates match it, for every boundary topology
+    @testset "grid locations" begin
+        for bdry_x in (Periodic, Bounded), bdry_z in (Periodic, Bounded)
+            box = Box2D(; Mx, Mz, Hx = 2, Hz = 1, boundary = (bdry_x, bdry_z))
+            dx, dz = 1 / Mx, 0.5 / Mz
+            for location in (:xz, :Xz, :xZ, :XZ)
+                data = alloc(F, box, location)
+                x, z = coordinates(box, (dx, dz), location)
+                @test interior(box, data) isa SubArray
+                @test size(interior(box, data)) == (length(x), length(z))
+            end
+            # cells at (i - 1/2) Δx, faces at (I - 1) Δx from the first wall; bounded: both wall faces
+            x, z = coordinates(box, (dx, dz), :xZ)
+            @test x[1] ≈ dx / 2 && z[1] ≈ 0
+            @test bdry_z == Bounded ? z[end] ≈ Mz * dz : z[end] ≈ (Mz - 1) * dz
+        end
+        box3d = Box3D(; Mx, My, Mz, Hx, Hy, Hz, boundary = (Bounded, Periodic, Bounded))
+        @test size(alloc(F, box3d, :XyZ, 2)) == (Xdim(box3d), ydim(box3d), Zdim(box3d), 2)
+    end
+
     include("walls.jl")
 end

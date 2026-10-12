@@ -1,6 +1,6 @@
 # Wall boundary conditions: construction checks, discretization, ghost velocities and mirrored halos, in 2D and 3D
 
-alloc(f, args...) = (f(args...); @allocated f(args...))
+allocations(f, args...) = (f(args...); @allocated f(args...))
 wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n))
 
 @testset "walls" begin
@@ -44,7 +44,7 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         @test w[6, 3:5] == w[5, 3:5]                                                   # free slip: ∂w/∂x = 0 on the right wall
         @test (u[:, 1] .+ u[:, 2]) ./ 2 ≈ U.(Xpoint.(Ref(box), dx, 1:7))              # moving bottom wall
         @test μ .* (u[:, 5] .- u[:, 4]) ./ dz ≈ fill(0.1, 7)                          # traction on the top wall
-        @test alloc(fill_velocity_halo!, bcs, box, (u, w), (dx, dz), μ) == 0
+        @test allocations(fill_velocity_halo!, bcs, box, (u, w), (dx, dz), μ) == 0
     end
 
     @testset "3D" begin
@@ -60,7 +60,7 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         @test (u[2:5, 2:4, 1] .+ u[2:5, 2:4, 2]) ./ 2 ≈ ones(4, 3)                     # bottom moves at (1, y)
         @test (v[2:5, 2:5, 1] .+ v[2:5, 2:5, 2]) ./ 2 ≈ [Ypoint(box, Δ[2], J) for i in 2:5, J in 2:5]
         @test μ .* (v[2:5, 2:5, 4] .- v[2:5, 2:5, 3]) ./ Δ[3] ≈ fill(0.1, 4, 4)        # traction on the top wall
-        @test alloc(fill_velocity_halo!, bcs, box, (u, v, w), Δ, μ) == 0
+        @test allocations(fill_velocity_halo!, bcs, box, (u, v, w), Δ, μ) == 0
     end
 
     @testset "zeroed halos and walls" begin
@@ -75,7 +75,7 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         zero_walls!(box, J, Val(2))
         @test all(iszero, J[:, [2, 5]]) && count(iszero, J) == 12
         @test zero_walls!(box, ones(6, 5), Val(1)) == ones(6, 5)          # periodic direction: untouched
-        @test alloc(zero_halo!, box, w, (Centred(), Faced())) == 0
+        @test allocations(zero_halo!, box, w, (Centred(), Faced())) == 0
     end
 
     @testset "mirrored halos" begin
@@ -85,6 +85,6 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         @test a[1, :, :, :] == a[5, :, :, :] && a[6, :, :, :] == a[2, :, :, :]
         @test a[:, 1, :, :] == a[:, 2, :, :] && a[:, 5, :, :] == a[:, 4, :, :]
         @test a[:, :, 1, :] == a[:, :, 2, :] && a[:, :, 4, :] == a[:, :, 3, :]
-        @test alloc(mirror_halo!, box, a) == 0
+        @test allocations(mirror_halo!, box, a) == 0
     end
 end
