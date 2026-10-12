@@ -5,17 +5,14 @@ using ManagedLoops: @vec, @with
 # boundary topology exports
 export Periodic, Bounded
 
-# boundary condition exports
-export BCType, DirichletBCType, NeumannBCType, PeriodicBCType
-export bc_type
-export AbstractBoundaryConditionSide, FunctionalBoundaryConditionSide, PeriodicBoundaryConditionSide
-export NeumannBC, DirichletBC, PeriodicBC
-export BoundaryCondition2D, DiscreteBoundaryCondition2D
-export BoundaryConditions2D
-export check_bcs, display_bcs
+# halo exports
+export periodize!
 
-# apply boundary condition exports
-export apply_bc_xz!, apply_bc_Xz!, apply_bc_xZ!, periodize!
+# wall boundary condition exports
+export FreeSlip, NoStress, NoSlip, TangentialVelocity, Stress, Flux, HeatFlux, Value, Wall, isheat
+export BoxBoundaryConditions, discretize, check_tracers, bc_value, fill_velocity_halo!, mirror_halo!
+export Centred, Faced, zero_halo!, zero_walls!
+
 
 # box exports
 export AbstractBox, AbstractBoxHalo, Box2D, Box3D
@@ -41,8 +38,7 @@ export AdvectionScheme, AdvEnergyCons, AdvEnstrophyCons
 
 include("julia/boundary_topology.jl")
 include("julia/boxes.jl")
-include("julia/boundary_conditions.jl")
-include("julia/apply_boundary_conditions.jl")
+include("julia/walls.jl")
 include("julia/centered_operators.jl")
 include("julia/advection_schemes.jl")
 

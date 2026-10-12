@@ -105,4 +105,5 @@ F = Float64
         end
     end
 
+    include("walls.jl")
 end
