@@ -291,11 +291,13 @@ grid_interior(box, d, letter::Char) =
 - `alloc_Xz` - allocate dual grid in x, primal grid in z
 - `alloc_xZ` - allocate primal grid in x, dual grid in z
 - `alloc_XZ` - allocate dual grid in x and z
+
+Arrays start at zero, so that halo points no kernel writes (e.g. beyond walls) are defined.
 """
-@inline alloc_xz(F::Type, box::Box2D, dims...) = Array{F}(undef, xdim(box), zdim(box), dims...)
-@inline alloc_Xz(F::Type, box::Box2D, dims...) = Array{F}(undef, Xdim(box), zdim(box), dims...)
-@inline alloc_xZ(F::Type, box::Box2D, dims...) = Array{F}(undef, xdim(box), Zdim(box), dims...)
-@inline alloc_XZ(F::Type, box::Box2D, dims...) = Array{F}(undef, Xdim(box), Zdim(box), dims...)
+@inline alloc_xz(F::Type, box::Box2D, dims...) = zeros(F, xdim(box), zdim(box), dims...)
+@inline alloc_Xz(F::Type, box::Box2D, dims...) = zeros(F, Xdim(box), zdim(box), dims...)
+@inline alloc_xZ(F::Type, box::Box2D, dims...) = zeros(F, xdim(box), Zdim(box), dims...)
+@inline alloc_XZ(F::Type, box::Box2D, dims...) = zeros(F, Xdim(box), Zdim(box), dims...)
 
 """
     alloc_xyz(F::Type, box::Box2D, dims...) -> Array
@@ -318,14 +320,14 @@ grid_interior(box, d, letter::Char) =
 - `alloc_xYZ` - allocate primal grid in x, dual grid in y and z
 - `alloc_XYZ` - allocate dual grid in x, y, z
 """
-@inline alloc_xyz(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), ydim(box), zdim(box), dims...)
-@inline alloc_Xyz(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), ydim(box), zdim(box), dims...)
-@inline alloc_xYz(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), Ydim(box), zdim(box), dims...)
-@inline alloc_xyZ(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), ydim(box), Zdim(box), dims...)
-@inline alloc_XYz(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), Ydim(box), zdim(box), dims...)
-@inline alloc_XyZ(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), ydim(box), Zdim(box), dims...)
-@inline alloc_xYZ(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), Ydim(box), Zdim(box), dims...)
-@inline alloc_XYZ(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), Ydim(box), Zdim(box), dims...)
+@inline alloc_xyz(F::Type, box::Box3D, dims...) = zeros(F, xdim(box), ydim(box), zdim(box), dims...)
+@inline alloc_Xyz(F::Type, box::Box3D, dims...) = zeros(F, Xdim(box), ydim(box), zdim(box), dims...)
+@inline alloc_xYz(F::Type, box::Box3D, dims...) = zeros(F, xdim(box), Ydim(box), zdim(box), dims...)
+@inline alloc_xyZ(F::Type, box::Box3D, dims...) = zeros(F, xdim(box), ydim(box), Zdim(box), dims...)
+@inline alloc_XYz(F::Type, box::Box3D, dims...) = zeros(F, Xdim(box), Ydim(box), zdim(box), dims...)
+@inline alloc_XyZ(F::Type, box::Box3D, dims...) = zeros(F, Xdim(box), ydim(box), Zdim(box), dims...)
+@inline alloc_xYZ(F::Type, box::Box3D, dims...) = zeros(F, xdim(box), Ydim(box), Zdim(box), dims...)
+@inline alloc_XYZ(F::Type, box::Box3D, dims...) = zeros(F, Xdim(box), Ydim(box), Zdim(box), dims...)
 
 """
     alloc(F::Type, box::AbstractBox, location::Symbol, dims...) -> Array
@@ -334,6 +336,16 @@ Allocate an array on the grid `location` of the box: one letter per dimension, l
 upper case for the dual grid, e.g. `:xz`, `:Xz`, `:xZ`, `:XZ` in 2D and `:xyz` … `:XYZ` in 3D (see `alloc_xz` etc.).
 """
 alloc(F::Type, box::AbstractBox, location::Symbol, dims...) = alloc(F, box, Val(location), dims...)
+
+"""
+    a = alloc!(a, F::Type, box::AbstractBox, location::Symbol, dims...)
+    a = alloc!(void, F::Type, box::AbstractBox, location::Symbol, dims...)
+
+Return the array `a` unchanged, or a new zero array on the grid `location` (see `alloc`) when `a` is not an array
+(e.g. MutatingOrNot `void`), as `similar!` does for scratch space.
+"""
+alloc!(a::AbstractArray, F::Type, box::AbstractBox, location::Symbol, dims...) = a
+alloc!(_, F::Type, box::AbstractBox, location::Symbol, dims...) = alloc(F, box, location, dims...)
 alloc(F::Type, box::Box2D, ::Val{:xz}, dims...) = alloc_xz(F, box, dims...)
 alloc(F::Type, box::Box2D, ::Val{:Xz}, dims...) = alloc_Xz(F, box, dims...)
 alloc(F::Type, box::Box2D, ::Val{:xZ}, dims...) = alloc_xZ(F, box, dims...)

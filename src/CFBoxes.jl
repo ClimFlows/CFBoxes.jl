@@ -25,7 +25,7 @@ export xgrid_interior, ygrid_interior, zgrid_interior
 export Xgrid_interior, Ygrid_interior, Zgrid_interior
 export dims, halo_size, boundary_topology
 export xpoint, ypoint, zpoint, Xpoint, Ypoint, Zpoint
-export alloc, alloc_xz, alloc_Xz, alloc_xZ, alloc_XZ
+export alloc, alloc!, alloc_xz, alloc_Xz, alloc_xZ, alloc_XZ
 export interior, add_halo, coordinates
 
 # centered operator exports
