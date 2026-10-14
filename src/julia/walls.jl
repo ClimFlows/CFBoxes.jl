@@ -111,16 +111,28 @@ struct BoxBoundaryConditions{W<:Tuple}
     walls::W
 end
 
-BoxBoundaryConditions(domain::Box2D; left = nothing, right = nothing, bottom = nothing, top = nothing) =
-    BoxBoundaryConditions(map(check_sides, boundary_topology(domain), ((left, right), (bottom, top)), ("left/right", "bottom/top")))
-BoxBoundaryConditions(domain::Box3D; left = nothing, right = nothing, front = nothing, back = nothing, bottom = nothing, top = nothing) =
-    BoxBoundaryConditions(map(check_sides, boundary_topology(domain), ((left, right), (front, back), (bottom, top)),
-                              ("left/right", "front/back", "bottom/top")))
+function BoxBoundaryConditions(domain::Box2D; left = nothing, right = nothing, bottom = nothing, top = nothing)
+    topology = boundary_topology(domain)
+    sides = ((left, right), (bottom, top))
+    names = ("left/right", "bottom/top")
+    walls = map(check_sides, topology, sides, names)    # (lower, upper) walls per direction, nothing if periodic
+    return BoxBoundaryConditions(walls)
+end
 
-check_sides(::Periodic, ::Tuple{Nothing, Nothing}, _) = nothing
-check_sides(::Periodic, _, names) = error("Sides $names are periodic and take no boundary condition.")
-check_sides(::Bounded, sides::Tuple{Wall, Wall}, _) = sides
-check_sides(::Bounded, _, names) = error("Sides $names are bounded: give each a Wall(; tangential, tracers).")
+function BoxBoundaryConditions(domain::Box3D; left = nothing, right = nothing, front = nothing, back = nothing,
+                               bottom = nothing, top = nothing)
+    topology = boundary_topology(domain)
+    sides = ((left, right), (front, back), (bottom, top))
+    names = ("left/right", "front/back", "bottom/top")
+    walls = map(check_sides, topology, sides, names)
+    return BoxBoundaryConditions(walls)
+end
+
+# Return the (lower, upper) walls of one direction: nothing if periodic, both Walls if bounded; anything else is an error.
+check_sides(::Periodic, ::Tuple{Nothing, Nothing}, names) = nothing
+check_sides(::Periodic, sides, names) = error("Sides $names are periodic and take no boundary condition.")
+check_sides(::Bounded, sides::Tuple{Wall, Wall}, names) = sides
+check_sides(::Bounded, sides, names) = error("Sides $names are bounded: give each a Wall(; tangential, tracers).")
 
 """
     check_tracers(bcs::BoxBoundaryConditions, n)
@@ -203,7 +215,13 @@ struct Faced end
 
 # ghost rules: ghost(rule, v, I, dist) is the ghost value mirroring the interior value v across the wall, at
 # distance dist; I indexes the position along the wall
-struct Even end                         # zero normal derivative
+"""
+    ZeroGradient()
+
+Ghost rule for `fill_halo!`: each ghost equals its mirror image in the fluid, so that the normal gradient (every
+difference across a wall) vanishes.
+"""
+struct ZeroGradient end
 struct Odd end                          # zero value on the wall
 struct Tangential{c, T, F}              # tangential velocity component c under the wall condition T
     condition::T
@@ -211,7 +229,7 @@ struct Tangential{c, T, F}              # tangential velocity component c under 
 end
 Tangential{c}(condition, μ) where c = Tangential{c, typeof(condition), typeof(μ)}(condition, μ)
 
-@inline ghost(::Union{Even, Tangential{c, FreeSlip} where c}, v, I, dist) = v
+@inline ghost(::Union{ZeroGradient, Tangential{c, FreeSlip} where c}, v, I, dist) = v
 @inline ghost(::Union{Odd, Tangential{c, NoSlip} where c}, v, I, dist) = -v
 @inline ghost(t::Tangential{c, <:TangentialVelocity}, v, I, dist) where c = 2 * at(t.condition.value[c], I) - v
 # traction τ = μ ∂v/∂n (outward normal n) ⇒ v_ghost = v + dist τ / μ
@@ -276,13 +294,15 @@ velocity_rules(::Tuple{Wall, Wall}, ::Val{d}, ::Val{d}, μ) where d = (Odd(), Od
 velocity_rules((lower, upper)::Tuple{Wall, Wall}, ::Val{c}, D, μ) where c = (Tangential{c}(lower.tangential, μ), Tangential{c}(upper.tangential, μ))
 
 """
-    mirror_halo!(domain, a)
+    fill_halo!(a, domain, ZeroGradient())
+    fill_halo!(arrays::Tuple, domain, ZeroGradient())
 
-Fill the halo of a cell-centred array `a` (trailing dimensions, e.g. tracers, allowed): periodize periodic
-directions, and mirror interior values across walls. Keeps halo values valid (e.g. for an equation of state);
-wall fluxes must not depend on them.
+Fill the halo of the cell-centred array `a` (trailing dimensions allowed): periodic copy in periodic directions, and
+zero normal gradient across walls (ghosts mirror the fluid cells). Return `a`.
 """
-mirror_halo!(domain, a) = (foreach_dim(D -> fill_halo!(pick(boundary_topology(domain), D), a, D, domain, Centred(), (Even(), Even()), 1), domain); a)
+fill_halo!(a::AbstractArray, domain, rule::ZeroGradient) =
+    (foreach_dim(D -> fill_halo!(pick(boundary_topology(domain), D), a, D, domain, Centred(), (rule, rule), 1), domain); a)
+fill_halo!(arrays::Tuple, domain, rule::ZeroGradient) = (map(a -> fill_halo!(a, domain, rule), arrays); nothing)
 
 """
     periodize!(model, a)
@@ -327,13 +347,24 @@ Set to zero the values of a face array `a` on the walls along dimension `D` (no 
 """
 zero_walls!(domain, a, D::Val) = zero_walls!(pick(boundary_topology(domain), D), domain, a, D)
 zero_walls!(::Periodic, domain, a, D) = a
-function zero_walls!(::Bounded, domain, a, D::Val{d}) where d
-    M, H = dims(domain)[d], halo_size(domain)[d]
+function zero_walls!(::Bounded, domain, a, D::Val)
+    lower, upper = wall_sides(domain, D)
     for I in slice(a, D)
-        a[across(I, D, H+1)] = 0
-        a[across(I, D, H+M+1)] = 0
+        a[across(I, D, lower.face)] = 0
+        a[across(I, D, upper.face)] = 0
     end
     return a
+end
+
+"""
+    lower, upper = wall_sides(domain, D::Val)
+
+The two walls across the bounded dimension `D`, each as `(; face, cell, n)`: the index along `D` of the wall faces
+and of the adjacent cells, and the normal `n` (+1 lower, -1 upper) pointing into the fluid. Combine with
+`slice`/`across` to address the wall along the other dimensions.
+"""
+wall_sides(domain, ::Val{d}) where d = let M = dims(domain)[d], H = halo_size(domain)[d]
+    ((face = H+1, cell = H+1, n = 1), (face = H+M+1, cell = H+M, n = -1))
 end
 
 # apply f(Val(d)) for each dimension d of a tuple or a box (unrolled, so that d is known at compile time)

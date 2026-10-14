@@ -10,8 +10,8 @@ export periodize!
 
 # wall boundary condition exports
 export FreeSlip, NoStress, NoSlip, TangentialVelocity, Stress, Flux, HeatFlux, Value, Wall, isheat
-export BoxBoundaryConditions, discretize, check_tracers, bc_value, fill_velocity_halo!, mirror_halo!
-export Centred, Faced, zero_halo!, zero_walls!
+export BoxBoundaryConditions, discretize, check_tracers, bc_value, fill_velocity_halo!, fill_halo!, ZeroGradient
+export Centred, Faced, zero_halo!, zero_walls!, wall_sides
 
 
 # box exports
@@ -33,13 +33,15 @@ export avg_x, avg_z, avg_X, avg_Z
 export avg_xz, avg_xZ, avg_Xz, avg_XZ
 export dif_x, dif_z, dif_X, dif_Z
 
-# advection scheme exports
-export AdvectionScheme, AdvEnergyCons, AdvEnstrophyCons
+# scheme exports
+export SpatialScheme, Centred2, operators
+export VortexScheme, VortexEnergyCons, VortexEnstrophyCons
 
 include("julia/boundary_topology.jl")
 include("julia/boxes.jl")
 include("julia/walls.jl")
 include("julia/centered_operators.jl")
-include("julia/advection_schemes.jl")
+include("julia/spatial_schemes.jl")
+include("julia/vortex_schemes.jl")
 
 end

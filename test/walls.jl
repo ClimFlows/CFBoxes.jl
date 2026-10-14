@@ -78,13 +78,19 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         @test allocations(zero_halo!, box, w, (Centred(), Faced())) == 0
     end
 
-    @testset "mirrored halos" begin
+    @testset "zero-gradient halos" begin
         box = Box3D(Mx = 4, My = 3, Mz = 2, boundary = (Periodic, Bounded, Bounded))
         a = rand(6, 5, 4, 2)
-        mirror_halo!(box, a)
+        fill_halo!(a, box, ZeroGradient())
         @test a[1, :, :, :] == a[5, :, :, :] && a[6, :, :, :] == a[2, :, :, :]
         @test a[:, 1, :, :] == a[:, 2, :, :] && a[:, 5, :, :] == a[:, 4, :, :]
         @test a[:, :, 1, :] == a[:, :, 2, :] && a[:, :, 4, :] == a[:, :, 3, :]
-        @test allocations(mirror_halo!, box, a) == 0
+        @test allocations(fill_halo!, a, box, ZeroGradient()) == 0
+    end
+
+    @testset "wall sides" begin
+        box = Box2D(Mx = 4, Mz = 3, Hx = 1, Hz = 1, boundary = (Periodic, Bounded))
+        lower, upper = wall_sides(box, Val(2))
+        @test lower == (face = 2, cell = 2, n = 1) && upper == (face = 5, cell = 4, n = -1)
     end
 end
