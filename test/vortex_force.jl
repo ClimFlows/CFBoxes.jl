@@ -13,11 +13,11 @@ vortex_bytes(out, model, scheme, velocity, ρ) =
     box3 = Box3D(Mx = 8, My = 4, Mz = 6, boundary = (Periodic, Periodic, Periodic))
     model2 = (mgr = PlainCPU(), domain = box2, spatial_scheme = Centred2(), inv_dx = 1 / dx, inv_dz = 1 / dz)
     model3 = (mgr = PlainCPU(), domain = box3, spatial_scheme = Centred2(), inv_dx = 1 / dx, inv_dy = 1 / dy, inv_dz = 1 / dz)
-    random(box, location) = (a = rand(size(alloc(Float64, box, location))...); a .-= 0.5; a)
+    random(box, location) = (a = rand(size(alloc(Float64, nothing, box, location))...); a .-= 0.5; a)
 
     # periodic 2D fields, halos filled
     u, w = random(box2, (Face(), Cell())), random(box2, (Cell(), Face()))
-    ρ = 1 .+ rand(size(alloc(Float64, box2, (Cell(), Cell())))...)
+    ρ = 1 .+ rand(size(alloc(Float64, nothing, box2, (Cell(), Cell())))...)
     periodize!(model2, (u, w, ρ))
     Iu, Ju = interior_faces(box2, 1), interior_cells(box2, 2)
     Iw, Jw = interior_cells(box2, 1), interior_faces(box2, 2)
@@ -63,7 +63,7 @@ vortex_bytes(out, model, scheme, velocity, ρ) =
     # 3D fields independent of y, with v = 0, reproduce the 2D force, with no y-component
     lift(a) = (b = zeros(size(a, 1), ncells(box3, 2), size(a, 2)); for j in axes(b, 2); b[:, j, :] .= a; end; b)
     u3, w3, ρ3 = lift(u), lift(w), lift(ρ)
-    v3 = zeros(size(alloc(Float64, box3, (Cell(), Face(), Cell()))))
+    v3 = zeros(size(alloc(Float64, nothing, box3, (Cell(), Face(), Cell()))))
     @testset "3D reduces to 2D" begin
         vortex_x, vortex_z, _ = vortex_force!((void, void, void), model2, VortexEnergyCons(), (u, w), ρ)
         vortex3_x, vortex3_y, vortex3_z, _ = vortex_force!((void, void, void, void), model3, VortexEnergyCons(), (u3, v3, w3), ρ3)
@@ -77,7 +77,7 @@ vortex_bytes(out, model, scheme, velocity, ρ) =
     # the energy-conserving 3D force does no work on random fields
     @testset "3D, no work" begin
         u3, v3, w3 = random(box3, (Face(), Cell(), Cell())), random(box3, (Cell(), Face(), Cell())), random(box3, (Cell(), Cell(), Face()))
-        ρ3 = 1 .+ rand(size(alloc(Float64, box3, (Cell(), Cell(), Cell())))...)
+        ρ3 = 1 .+ rand(size(alloc(Float64, nothing, box3, (Cell(), Cell(), Cell())))...)
         periodize!(model3, (u3, v3, w3, ρ3))
         vortex_x, vortex_y, vortex_z, scratch = vortex_force!((void, void, void, void), model3, VortexEnergyCons(), (u3, v3, w3), ρ3)
         ρᴵ, ρᴶ, ρᴷ = scratch[1], scratch[2], scratch[3]

@@ -58,7 +58,7 @@ some_ops_bytes(a, b, v, i, j) = (some_ops(a, b, v, i, j); @allocated some_ops(a,
     # inside @vec loops, with a SIMD range as the first index
     box = Box2D(Mx = 16, Mz = 4, boundary = (Periodic, Bounded))
     a, b = rand(ncells(box, 1), ncells(box, 2)), rand(ncells(box, 1), ncells(box, 2))
-    out_vec, out_ref = alloc(Float64, box, (Face(), Cell())), alloc(Float64, box, (Face(), Cell()))
+    out_vec, out_ref = alloc(Float64, nothing, box, (Face(), Cell())), alloc(Float64, nothing, box, (Face(), Cell()))
     function kernel!(out, mgr, box, a, b, v)
         @with mgr, let (irange, jrange) = (faces(box, 1), cells(box, 2))
             @inbounds @vec for I in irange, j in jrange

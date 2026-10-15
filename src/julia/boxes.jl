@@ -224,25 +224,56 @@ interior_grid(box, Δ, ::Face, d) = facegrid(box, Δ, d)[interior_faces(box, d)]
 interior_grid(box, Δ, ::Cell, d) = cellgrid(box, Δ, d)[interior_cells(box, d)]
 
 """
-    alloc(F::Type, box::AbstractBox, location::Tuple, dims...) -> Array
+    alloc(F::Type, mgr, box::AbstractBox, location::Tuple, dims...) -> Array
 
 Allocate a zero array on the grid `location` of the box: one `Face()` or `Cell()` per dimension, in dimension order,
 e.g. `(Cell(), Cell())` cells, `(Face(), Cell())` u-faces, `(Cell(), Face())` w-faces, `(Face(), Face())` vertices in
 2D. Trailing `dims` are extra dimensions. Arrays start at zero, so that halo points no kernel writes (e.g. beyond
 walls) are defined.
+
+The zeros are written by the loop manager `mgr` (`nothing` writes them serially), whose threads share out the last
+box dimension as in the kernels. The operating system places each page of memory next to the thread that first
+writes it, so on a multi-socket node every thread then works on memory attached to its own socket.
 """
-alloc(F::Type, box::AbstractBox, location::Tuple, dims...) =
-    zeros(F, map((s, d) -> npoints(box, s, d), location, dimensions(location))..., dims...)
+function alloc(F::Type, mgr, box::AbstractBox, location::Tuple, dims...)
+    a = Array{F}(undef, map((s, d) -> npoints(box, s, d), location, dimensions(location))..., dims...)
+    return zero!(a, mgr, box)
+end
 
 """
-    a = alloc!(a, F::Type, box::AbstractBox, location::Tuple, dims...)
-    a = alloc!(void, F::Type, box::AbstractBox, location::Tuple, dims...)
+    a = alloc!(a, F::Type, mgr, box::AbstractBox, location::Tuple, dims...)
+    a = alloc!(void, F::Type, mgr, box::AbstractBox, location::Tuple, dims...)
 
 Return the array `a` unchanged, or a new zero array on the grid `location` (see `alloc`) when `a` is not an array
 (e.g. MutatingOrNot `void`), as `similar!` does for scratch space.
 """
-alloc!(a::AbstractArray, F::Type, box::AbstractBox, location::Tuple, dims...) = a
-alloc!(_, F::Type, box::AbstractBox, location::Tuple, dims...) = alloc(F, box, location, dims...)
+alloc!(a::AbstractArray, F::Type, mgr, box::AbstractBox, location::Tuple, dims...) = a
+alloc!(_, F::Type, mgr, box::AbstractBox, location::Tuple, dims...) = alloc(F, mgr, box, location, dims...)
+
+# a = 0 by the threads of `mgr`, each on the levels (last box dimension) it handles in the kernels; the trailing extra
+# dimensions (e.g. tracers) one at a time. Plain loops, i innermost: @vec cannot store a value independent of i.
+function zero!(a, mgr, ::Box2D)
+    levels = reshape(a, size(a, 1), size(a, 2), :)                         # (x, z, extra)
+    for n in axes(levels, 3)
+        @with mgr, let (irange, jrange) = (axes(levels, 1), axes(levels, 2))
+            @inbounds for j in jrange, i in irange
+                levels[i, j, n] = 0
+            end
+        end
+    end
+    return a
+end
+function zero!(a, mgr, ::Box3D)
+    levels = reshape(a, size(a, 1), size(a, 2), size(a, 3), :)             # (x, y, z, extra)
+    for n in axes(levels, 4)
+        @with mgr, let (irange, jrange, krange) = (axes(levels, 1), axes(levels, 2), axes(levels, 3))
+            @inbounds for k in krange, j in jrange, i in irange
+                levels[i, j, k, n] = 0
+            end
+        end
+    end
+    return a
+end
 
 #####
 ##### Indices across one dimension (dimension d known at compile time)

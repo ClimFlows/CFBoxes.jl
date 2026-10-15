@@ -47,7 +47,7 @@ F = Float64
             box = Box2D(; Mx, Mz, Hx = 2, Hz = 1, boundary = (bdry_x, bdry_z))
             dx, dz = 1 / Mx, 0.5 / Mz
             for location in ((Cell(), Cell()), (Face(), Cell()), (Cell(), Face()), (Face(), Face()))
-                data = alloc(F, box, location)
+                data = alloc(F, nothing, box, location)
                 x, z = coordinates(box, (dx, dz), location)
                 @test interior(box, data) isa SubArray
                 @test size(interior(box, data)) == (length(x), length(z))
@@ -58,7 +58,7 @@ F = Float64
             @test bdry_z == Bounded ? z[end] ≈ Mz * dz : z[end] ≈ (Mz - 1) * dz
         end
         box3d = Box3D(; Mx, My, Mz, Hx, Hy, Hz, boundary = (Bounded, Periodic, Bounded))
-        @test size(alloc(F, box3d, (Face(), Cell(), Face()), 2)) == (nfaces(box3d, 1), ncells(box3d, 2), nfaces(box3d, 3), 2)
+        @test size(alloc(F, nothing, box3d, (Face(), Cell(), Face()), 2)) == (nfaces(box3d, 1), ncells(box3d, 2), nfaces(box3d, 3), 2)
     end
 
     # the grid along each dimension d: sizes, ranges and coordinates, for every topology and halo width
