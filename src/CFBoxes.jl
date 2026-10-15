@@ -25,7 +25,7 @@ export ℑ, δ
 
 # scheme exports
 export SpatialScheme, Centred2, operators, halo_width, check_halo
-export VortexScheme, VortexEnergyCons, VortexEnstrophyCons, vortex_force!
+export VortexScheme, VortexEnergyCons, VortexEnstrophyCons, VortexEnergyEnstrophyCons, vortex_force!
 
 include("julia/boundary_topology.jl")
 include("julia/boxes.jl")

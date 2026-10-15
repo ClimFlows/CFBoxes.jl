@@ -1,259 +1,281 @@
-## the vortex force ω×u on the C-grid, from the velocity and the density at the cells
+## the vortex force ω×u on the C-grid, from the velocity and the density at the cells (Sadourny 1975, Arakawa & Lamb 1981)
 #
-# `model` is any object with the fields `mgr`, `domain`, `spatial_scheme` and `inv_dx`, `inv_dz` (plus `inv_dy` in
-# 3D). Face densities ρᴵ = ℑ(ρ, (1,), (Face(),)), ρᴶ, ρᴷ weight the velocities into mass fluxes, exactly as in the tracer fluxes
-# u ℑ(ρ, (1,), (Face(),)), so that the vortex force does no work: Σ ρᴵ u (ω×u)_x + … = 0 with the energy-conserving scheme.
+# Notation, after Sadourny (1975) with his y → z (his rot V is -ω here); ℑ, δ in lower case onto the cells, upper case
+# onto the faces, as in operators.jl:
+#   ω  = δZ u / Δz - δX w / Δx     vorticity at the vertices (XZ)
+#   η  = ω / ℑXZ(ρ)                potential vorticity at the vertices (q in Arakawa & Lamb 1981 and Salmon 2004)
+#   U  = ρᴵ u,  W = ρᴶ w           mass fluxes on the u- and w-faces, with the face densities ρᴵ = ℑX(ρ), ρᴶ = ℑZ(ρ)
+#   Uᴶ = ℑZ(U), Wᴵ = ℑX(W)         mass fluxes interpolated to the vertices
+# vortex_x = (ω×u)_x = ω w on the u-faces and vortex_z = (ω×u)_z = -ω u on the w-faces; the momentum tendency is -ω×u.
+# Sadourny's two schemes share η, Uᴶ, Wᴵ and differ only in how the products reach the faces (his eqs 3 and 4).
+# The face densities are those of the tracer fluxes, so that with the energy-conserving scheme
+# Σ U vortex_x + Σ W vortex_z = 0: the vortex force does no work.
+#
+# `model` is any object with the fields `mgr`, `domain`, `spatial_scheme` and `inv_dx`, `inv_dz` (plus `inv_dy` in 3D).
 
 """
-    ωw, ωu, scratch = vortex_force!((ωw, ωu, scratch), model, scheme::VortexScheme, (u, w), ρ)
+    vortex_x, vortex_z, scratch = vortex_force!((vortex_x, vortex_z, scratch), model, scheme::VortexScheme, (u, w), ρ)
 
-2D vortex force on the faces: `ωw = (ω×u)_x` on the u-faces and `ωu = -(ω×u)_z` on the w-faces, with
-ω = ∂u/∂z - ∂w/∂x at the vertices, the velocity `(u, w)` on the faces and the density `ρ` at the cells: a cell array, or
-a vertical profile (a vector, e.g. the anelastic reference density). The momentum tendencies are `-ωw` and `+ωu`. `scheme` is `VortexEnergyCons()` or `VortexEnstrophyCons()` (Sadourny 1975).
+2D vortex force ω×u [m s⁻²]: `vortex_x` = (ω×u)_x = ω w on the u-faces and `vortex_z` = (ω×u)_z = -ω u on the
+w-faces, with ω = ∂u/∂z - ∂w/∂x at the vertices, the velocity `(u, w)` on the faces and the density `ρ` at the cells:
+a cell array, or a vertical profile (a vector, e.g. the anelastic reference density). The momentum tendencies are
+`-vortex_x` and `-vortex_z`. `scheme` is `VortexEnergyCons()` or `VortexEnstrophyCons()` (Sadourny 1975, eqs 3 and 4),
+or `VortexEnergyEnstrophyCons()` (Arakawa & Lamb 1981).
 
-    fx, fy, fz, scratch = vortex_force!((fx, fy, fz, scratch), model, scheme, (u, v, w), ρ)
+    vortex_x, vortex_y, vortex_z, scratch = vortex_force!((vortex_x, vortex_y, vortex_z, scratch), model,
+                                                          VortexEnergyCons(), (u, v, w), ρ)
 
-3D vortex force `(fx, fy, fz) = ω×u` on the u-, v- and w-faces, with ω = ∇×u on the edges.
+3D vortex force ω×u on the u-, v- and w-faces, with ω = ∇×u on the edges (energy-conserving only: enstrophy is not an
+invariant of 3D flow).
 """
-function vortex_force!((ωw_, ωu_, (ρᴵ_, ρᴶ_, ωwᴵᴶ_, ωuᴵᴶ_)), model, ::VortexEnergyCons, (u, w)::NTuple{2}, ρ)
+function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, Uᴶ_, Wᴵ_)), model, scheme::VortexScheme, (u, w)::NTuple{2}, ρ)
     (; mgr, domain, inv_dx, inv_dz, spatial_scheme) = model
     (; ℑ, δ) = operators(spatial_scheme)
     F = eltype(u)
 
-    ωw      = alloc!(ωw_, F, domain, (Face(), Cell()))
-    ωu      = alloc!(ωu_, F, domain, (Cell(), Face()))
-    ωwᴵᴶ    = alloc!(ωwᴵᴶ_, F, domain, (Face(), Face()))
-    ωuᴵᴶ    = alloc!(ωuᴵᴶ_, F, domain, (Face(), Face()))
+    η       = alloc!(η_, F, domain, (Face(), Face()))
+    Uᴶ      = alloc!(Uᴶ_, F, domain, (Face(), Face()))
+    Wᴵ      = alloc!(Wᴵ_, F, domain, (Face(), Face()))
     ρᴵ, ρᴶ  = face_densities!((ρᴵ_, ρᴶ_), model, ρ)
 
-    # vertices: ω ρw / ρ and ω ρu / ρ
+    # vertices: η = ω / ℑXZ(ρ), Uᴶ = ℑZ(ρᴵ u), Wᴵ = ℑX(ρᴶ w)
     @with mgr, let (irange, jrange) = (faces(domain, 1), faces(domain, 2))
         @inbounds @vec for I in irange, J in jrange
             ω = inv_dz * δ(u, (2,), (Face(),), I, J) - inv_dx * δ(w, (1,), (Face(),), I, J)
-            ωwᴵᴶ[I, J] = ω * ℑ((ρᴶ, w), (1,), (Face(),), I, J) * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J))
-            ωuᴵᴶ[I, J] = ω * ℑ((ρᴵ, u), (2,), (Face(),), I, J) * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J))
+            η[I, J]  = ω * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J))
+            Uᴶ[I, J] = ℑ((ρᴵ, u), (2,), (Face(),), I, J)
+            Wᴵ[I, J] = ℑ((ρᴶ, w), (1,), (Face(),), I, J)
         end
     end
-    periodize!(model, (ωwᴵᴶ, ωuᴵᴶ))
+    periodize!(model, (η, Uᴶ, Wᴵ))
 
-    # u-faces: ωw
-    @with mgr, let (irange, jrange) = (axes(ωw, 1), cells(domain, 2))
-        @inbounds @vec for I in irange, j in jrange
-            ωw[I, j] = ℑ(ωwᴵᴶ, (2,), (Cell(),), I, j)
-        end
-    end
-    # w-faces: ωu
-    @with mgr, let (irange, jrange) = (cells(domain, 1), axes(ωu, 2))
-        @inbounds @vec for i in irange, J in jrange
-            ωu[i, J] = ℑ(ωuᴵᴶ, (1,), (Cell(),), i, J)
-        end
-    end
-    periodize!(model, (ωw, ωu))
-
-    return ωw, ωu, (ρᴵ, ρᴶ, ωwᴵᴶ, ωuᴵᴶ)
+    vortex_x, vortex_z = vortex_faces!((vortex_x_, vortex_z_), model, scheme, (η, Uᴶ, Wᴵ))
+    return vortex_x, vortex_z, (ρᴵ, ρᴶ, η, Uᴶ, Wᴵ)
 end
 
-# enstrophy-conserving: ζ = ω/ρ and the mass fluxes interpolated separately to the faces, then multiplied
-function vortex_force!((ωw_, ωu_, (ρᴵ_, ρᴶ_, ζᴵᴶ_, ρwᴵ_, ρuᴶ_)), model, ::VortexEnstrophyCons, (u, w)::NTuple{2}, ρ)
+# Sadourny (1975) eq. 3, energy-conserving: the products at the vertices, interpolated to the faces,
+#   vortex_x = ℑz(η Wᴵ),  vortex_z = -ℑx(η Uᴶ)
+function vortex_faces!((vortex_x_, vortex_z_), model, ::VortexEnergyCons, (η, Uᴶ, Wᴵ))
+    (; mgr, domain, spatial_scheme) = model
+    (; ℑ) = operators(spatial_scheme)
+    F = eltype(η)
+
+    vortex_x = alloc!(vortex_x_, F, domain, (Face(), Cell()))
+    vortex_z = alloc!(vortex_z_, F, domain, (Cell(), Face()))
+
+    # u-faces
+    @with mgr, let (irange, jrange) = (axes(vortex_x, 1), cells(domain, 2))
+        @inbounds @vec for I in irange, j in jrange
+            vortex_x[I, j] = ℑ((η, Wᴵ), (2,), (Cell(),), I, j)
+        end
+    end
+    # w-faces
+    @with mgr, let (irange, jrange) = (cells(domain, 1), axes(vortex_z, 2))
+        @inbounds @vec for i in irange, J in jrange
+            vortex_z[i, J] = -ℑ((η, Uᴶ), (1,), (Cell(),), i, J)
+        end
+    end
+    periodize!(model, (vortex_x, vortex_z))
+    return vortex_x, vortex_z
+end
+
+# Sadourny (1975) eq. 4, enstrophy-conserving (2D only): η and the mass fluxes interpolated to the faces separately,
+# then multiplied,
+#   vortex_x = ℑz(η) ℑz(Wᴵ),  vortex_z = -ℑx(η) ℑx(Uᴶ)
+function vortex_faces!((vortex_x_, vortex_z_), model, ::VortexEnstrophyCons, (η, Uᴶ, Wᴵ))
+    (; mgr, domain, spatial_scheme) = model
+    (; ℑ) = operators(spatial_scheme)
+    F = eltype(η)
+
+    vortex_x = alloc!(vortex_x_, F, domain, (Face(), Cell()))
+    vortex_z = alloc!(vortex_z_, F, domain, (Cell(), Face()))
+
+    # u-faces
+    @with mgr, let (irange, jrange) = (axes(vortex_x, 1), cells(domain, 2))
+        @inbounds @vec for I in irange, j in jrange
+            vortex_x[I, j] = ℑ(η, (2,), (Cell(),), I, j) * ℑ(Wᴵ, (2,), (Cell(),), I, j)
+        end
+    end
+    # w-faces
+    @with mgr, let (irange, jrange) = (cells(domain, 1), axes(vortex_z, 2))
+        @inbounds @vec for i in irange, J in jrange
+            vortex_z[i, J] = -ℑ(η, (1,), (Cell(),), i, J) * ℑ(Uᴶ, (1,), (Cell(),), i, J)
+        end
+    end
+    periodize!(model, (vortex_x, vortex_z))
+    return vortex_x, vortex_z
+end
+
+# Arakawa & Lamb (1981) eqs 3.5, 3.6 and 3.34, energy- and potential-enstrophy-conserving (2D only), with their
+# (i, j) → our (I, J) vertices, (i+½, j+½) → (i, j) cells, u* → U, v* → W, q → -η (their ζ is -ω); their rotation
+# terms, linear in q, are then -vortex. Each mass flux on a face of a cell is weighted by a combination of the four η
+# around that cell:
+#   α, β, γ, δ = ηⁱʲ/4 ± δη_xz/48     ηⁱʲ = ℑxz(η), δη_xz = δxδz(η) (the diagonal minus the anti-diagonal pair)
+#   ε = Δz/Δx δz ℑx(η) / 12,  φ = -Δx/Δz δx ℑz(η) / 12   (AL's "unphysical Coriolis" terms, U on U, W on W)
+# AL's grid is square: on rectangular cells, their scheme holds for the circulations uΔx, wΔz and the transports UΔz,
+# WΔx, which leaves the aspect ratio in ε and φ only.
+# With Uⁱ = ℑx(U), Wʲ = ℑz(W) and the differences δU_x = δx(U), δW_z = δz(W) at the cells, eqs 3.5 and 3.6 read
+#   vortex_x =  ℑX(ηⁱʲ Wʲ) + δX(δη_xz δW_z) / 48 - 2 δX(ε Uⁱ) + U δX(ε)
+#   vortex_z = -ℑZ(ηⁱʲ Uⁱ) - δZ(δη_xz δU_x) / 48 - 2 δZ(φ Wʲ) + W δZ(φ)
+# The cell values come from ηʲ = ℑz(η) and δη_z = δz(η) on the u-faces. The force does no work, and conserves the
+# potential enstrophy Σ ℑXZ(ρ) η²/2 for any mass flux, divergent or not.
+function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, ηʲ_, δη_z_, ηⁱʲ_, δη_xz_, ε_, φ_, Uⁱ_, Wʲ_, δU_x_, δW_z_)),
+                       model, ::VortexEnergyEnstrophyCons, (u, w)::NTuple{2}, ρ)
     (; mgr, domain, inv_dx, inv_dz, spatial_scheme) = model
     (; ℑ, δ) = operators(spatial_scheme)
     F = eltype(u)
 
-    ωw      = alloc!(ωw_, F, domain, (Face(), Cell()))
-    ωu      = alloc!(ωu_, F, domain, (Cell(), Face()))
-    ζᴵᴶ     = alloc!(ζᴵᴶ_, F, domain, (Face(), Face()))
-    ρwᴵ     = alloc!(ρwᴵ_, F, domain, (Face(), Face()))
-    ρuᴶ     = alloc!(ρuᴶ_, F, domain, (Face(), Face()))
-    ρᴵ, ρᴶ  = face_densities!((ρᴵ_, ρᴶ_), model, ρ)
+    vortex_x    = alloc!(vortex_x_, F, domain, (Face(), Cell()))
+    vortex_z    = alloc!(vortex_z_, F, domain, (Cell(), Face()))
+    η           = alloc!(η_, F, domain, (Face(), Face()))
+    ηʲ          = alloc!(ηʲ_, F, domain, (Face(), Cell()))
+    δη_z        = alloc!(δη_z_, F, domain, (Face(), Cell()))
+    ηⁱʲ         = alloc!(ηⁱʲ_, F, domain, (Cell(), Cell()))
+    δη_xz       = alloc!(δη_xz_, F, domain, (Cell(), Cell()))
+    ε           = alloc!(ε_, F, domain, (Cell(), Cell()))
+    φ           = alloc!(φ_, F, domain, (Cell(), Cell()))
+    Uⁱ          = alloc!(Uⁱ_, F, domain, (Cell(), Cell()))
+    Wʲ          = alloc!(Wʲ_, F, domain, (Cell(), Cell()))
+    δU_x        = alloc!(δU_x_, F, domain, (Cell(), Cell()))
+    δW_z        = alloc!(δW_z_, F, domain, (Cell(), Cell()))
+    ρᴵ, ρᴶ      = face_densities!((ρᴵ_, ρᴶ_), model, ρ)
 
-    # vertices: ζ = ω / ρ and the mass fluxes ρw, ρu
+    # vertices: η = ω / ℑXZ(ρ)
     @with mgr, let (irange, jrange) = (faces(domain, 1), faces(domain, 2))
         @inbounds @vec for I in irange, J in jrange
             ω = inv_dz * δ(u, (2,), (Face(),), I, J) - inv_dx * δ(w, (1,), (Face(),), I, J)
-            ζᴵᴶ[I, J] = ω * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J))
-            ρwᴵ[I, J] = ℑ((ρᴶ, w), (1,), (Face(),), I, J)
-            ρuᴶ[I, J] = ℑ((ρᴵ, u), (2,), (Face(),), I, J)
+            η[I, J] = ω * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J))
         end
     end
-    periodize!(model, (ζᴵᴶ, ρwᴵ, ρuᴶ))
-
-    # u-faces: ωw
-    @with mgr, let (irange, jrange) = (axes(ωw, 1), cells(domain, 2))
+    periodize!(model, (η,))
+    # u-faces: ηʲ = ℑz(η), δη_z = δz(η)
+    @with mgr, let (irange, jrange) = (axes(ηʲ, 1), cells(domain, 2))
         @inbounds @vec for I in irange, j in jrange
-            ωw[I, j] = ℑ(ζᴵᴶ, (2,), (Cell(),), I, j) * ℑ(ρwᴵ, (2,), (Cell(),), I, j)
+            ηʲ[I, j]   = ℑ(η, (2,), (Cell(),), I, j)
+            δη_z[I, j] = δ(η, (2,), (Cell(),), I, j)
         end
     end
-    # w-faces: ωu
-    @with mgr, let (irange, jrange) = (cells(domain, 1), axes(ωu, 2))
+    # cells: AL's coefficients, and the mass fluxes interpolated and differenced
+    @with mgr, let (irange, jrange) = (cells(domain, 1), cells(domain, 2))
+        @inbounds @vec for i in irange, j in jrange
+            ηⁱʲ[i, j]   = ℑ(ηʲ, (1,), (Cell(),), i, j)
+            δη_xz[i, j] = δ(δη_z, (1,), (Cell(),), i, j)
+            ε[i, j]     = inv_dx / inv_dz * ℑ(δη_z, (1,), (Cell(),), i, j) / 12
+            φ[i, j]     = -inv_dz / inv_dx * δ(ηʲ, (1,), (Cell(),), i, j) / 12
+            Uⁱ[i, j]    = ℑ((ρᴵ, u), (1,), (Cell(),), i, j)
+            δU_x[i, j]  = δ((ρᴵ, u), (1,), (Cell(),), i, j)
+            Wʲ[i, j]    = ℑ((ρᴶ, w), (2,), (Cell(),), i, j)
+            δW_z[i, j]  = δ((ρᴶ, w), (2,), (Cell(),), i, j)
+        end
+    end
+    periodize!(model, (ηⁱʲ, δη_xz, ε, φ, Uⁱ, δU_x, Wʲ, δW_z))
+
+    # u-faces
+    @with mgr, let (irange, jrange) = (faces(domain, 1), cells(domain, 2))
+        @inbounds @vec for I in irange, j in jrange
+            vortex_x[I, j] = ℑ((ηⁱʲ, Wʲ), (1,), (Face(),), I, j) + δ((δη_xz, δW_z), (1,), (Face(),), I, j) / 48 -
+                             2 * δ((ε, Uⁱ), (1,), (Face(),), I, j) + point((ρᴵ, u), I, j) * δ(ε, (1,), (Face(),), I, j)
+        end
+    end
+    # w-faces
+    @with mgr, let (irange, jrange) = (cells(domain, 1), faces(domain, 2))
         @inbounds @vec for i in irange, J in jrange
-            ωu[i, J] = ℑ(ζᴵᴶ, (1,), (Cell(),), i, J) * ℑ(ρuᴶ, (1,), (Cell(),), i, J)
+            vortex_z[i, J] = -ℑ((ηⁱʲ, Uⁱ), (2,), (Face(),), i, J) - δ((δη_xz, δU_x), (2,), (Face(),), i, J) / 48 -
+                             2 * δ((φ, Wʲ), (2,), (Face(),), i, J) + point((ρᴶ, w), i, J) * δ(φ, (2,), (Face(),), i, J)
         end
     end
-    periodize!(model, (ωw, ωu))
+    periodize!(model, (vortex_x, vortex_z))
 
-    return ωw, ωu, (ρᴵ, ρᴶ, ζᴵᴶ, ρwᴵ, ρuᴶ)
+    return vortex_x, vortex_z, (ρᴵ, ρᴶ, η, ηʲ, δη_z, ηⁱʲ, δη_xz, ε, φ, Uⁱ, Wʲ, δU_x, δW_z)
 end
 
-# 3D, energy-conserving: products of ω and the mass fluxes on the edges, interpolated to the faces. Edges: ωx on
-# xYZ (ᴶᴷ), ωy on XyZ (ᴵᴷ), ωz on XYz (ᴵᴶ).
-function vortex_force!((fx_, fy_, fz_, (ρᴵ_, ρᴶ_, ρᴷ_, ωywᴵᴷ_, ωyuᴵᴷ_, ωzuᴵᴶ_, ωzvᴵᴶ_, ωxvᴶᴷ_, ωxwᴶᴷ_)), model,
-                       ::VortexEnergyCons, (u, v, w)::NTuple{3}, ρ)
+# 3D, Sadourny's energy-conserving products on the edges, interpolated to the faces. Edges: η_x on xYZ (ᴶᴷ), η_y on
+# XyZ (ᴵᴷ), η_z on XYz (ᴵᴶ), each with the two mass fluxes U = ρᴵ u, V = ρᴶ v, W = ρᴷ w interpolated to it.
+function vortex_force!((vortex_x_, vortex_y_, vortex_z_, (ρᴵ_, ρᴶ_, ρᴷ_, η_x_, η_y_, η_z_, Uᴶ_, Uᴷ_, Vᴵ_, Vᴷ_, Wᴵ_, Wᴶ_)),
+                       model, ::VortexEnergyCons, (u, v, w)::NTuple{3}, ρ)
     (; mgr, domain, inv_dx, inv_dy, inv_dz, spatial_scheme) = model
     (; ℑ, δ) = operators(spatial_scheme)
     F = eltype(u)
 
-    fx          = alloc!(fx_, F, domain, (Face(), Cell(), Cell()))
-    fy          = alloc!(fy_, F, domain, (Cell(), Face(), Cell()))
-    fz          = alloc!(fz_, F, domain, (Cell(), Cell(), Face()))
-    ωywᴵᴷ       = alloc!(ωywᴵᴷ_, F, domain, (Face(), Cell(), Face()))
-    ωyuᴵᴷ       = alloc!(ωyuᴵᴷ_, F, domain, (Face(), Cell(), Face()))
-    ωzuᴵᴶ       = alloc!(ωzuᴵᴶ_, F, domain, (Face(), Face(), Cell()))
-    ωzvᴵᴶ       = alloc!(ωzvᴵᴶ_, F, domain, (Face(), Face(), Cell()))
-    ωxvᴶᴷ       = alloc!(ωxvᴶᴷ_, F, domain, (Cell(), Face(), Face()))
-    ωxwᴶᴷ       = alloc!(ωxwᴶᴷ_, F, domain, (Cell(), Face(), Face()))
+    vortex_x    = alloc!(vortex_x_, F, domain, (Face(), Cell(), Cell()))
+    vortex_y    = alloc!(vortex_y_, F, domain, (Cell(), Face(), Cell()))
+    vortex_z    = alloc!(vortex_z_, F, domain, (Cell(), Cell(), Face()))
+    η_y         = alloc!(η_y_, F, domain, (Face(), Cell(), Face()))
+    Wᴵ          = alloc!(Wᴵ_, F, domain, (Face(), Cell(), Face()))
+    Uᴷ          = alloc!(Uᴷ_, F, domain, (Face(), Cell(), Face()))
+    η_z         = alloc!(η_z_, F, domain, (Face(), Face(), Cell()))
+    Uᴶ          = alloc!(Uᴶ_, F, domain, (Face(), Face(), Cell()))
+    Vᴵ          = alloc!(Vᴵ_, F, domain, (Face(), Face(), Cell()))
+    η_x         = alloc!(η_x_, F, domain, (Cell(), Face(), Face()))
+    Vᴷ          = alloc!(Vᴷ_, F, domain, (Cell(), Face(), Face()))
+    Wᴶ          = alloc!(Wᴶ_, F, domain, (Cell(), Face(), Face()))
     ρᴵ, ρᴶ, ρᴷ  = face_densities!((ρᴵ_, ρᴶ_, ρᴷ_), model, ρ)
 
-    # XyZ edges: ωy = ∂u/∂z - ∂w/∂x, times ρw and ρu, over ρ
-    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), axes(ωywᴵᴷ, 2), faces(domain, 3))
+    # XyZ edges: η_y = (∂u/∂z - ∂w/∂x) / ℑXZ(ρ), Wᴵ = ℑX(ρᴷ w), Uᴷ = ℑZ(ρᴵ u)
+    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), axes(η_y, 2), faces(domain, 3))
         for K in krange, j in jrange
             @inbounds @vec for I in irange
-                ωy = inv_dz * δ(u, (3,), (Face(),), I, j, K) - inv_dx * δ(w, (1,), (Face(),), I, j, K)
-                ωywᴵᴷ[I, j, K] = ωy * ℑ((ρᴷ, w), (1,), (Face(),), I, j, K) * inv(ℑ(ρ, (1, 3), (Face(), Face()), I, j, K))
-                ωyuᴵᴷ[I, j, K] = ωy * ℑ((ρᴵ, u), (3,), (Face(),), I, j, K) * inv(ℑ(ρ, (1, 3), (Face(), Face()), I, j, K))
+                ω_y = inv_dz * δ(u, (3,), (Face(),), I, j, K) - inv_dx * δ(w, (1,), (Face(),), I, j, K)
+                η_y[I, j, K] = ω_y * inv(ℑ(ρ, (1, 3), (Face(), Face()), I, j, K))
+                Wᴵ[I, j, K]  = ℑ((ρᴷ, w), (1,), (Face(),), I, j, K)
+                Uᴷ[I, j, K]  = ℑ((ρᴵ, u), (3,), (Face(),), I, j, K)
             end
         end
     end
-    # XYz edges: ωz = ∂v/∂x - ∂u/∂y, times ρu and ρv, over ρ
-    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), faces(domain, 2), axes(ωzuᴵᴶ, 3))
+    # XYz edges: η_z = (∂v/∂x - ∂u/∂y) / ℑXY(ρ), Uᴶ = ℑY(ρᴵ u), Vᴵ = ℑX(ρᴶ v)
+    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), faces(domain, 2), axes(η_z, 3))
         for k in krange, J in jrange
             @inbounds @vec for I in irange
-                ωz = inv_dx * δ(v, (1,), (Face(),), I, J, k) - inv_dy * δ(u, (2,), (Face(),), I, J, k)
-                ωzuᴵᴶ[I, J, k] = ωz * ℑ((ρᴵ, u), (2,), (Face(),), I, J, k) * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J, k))
-                ωzvᴵᴶ[I, J, k] = ωz * ℑ((ρᴶ, v), (1,), (Face(),), I, J, k) * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J, k))
+                ω_z = inv_dx * δ(v, (1,), (Face(),), I, J, k) - inv_dy * δ(u, (2,), (Face(),), I, J, k)
+                η_z[I, J, k] = ω_z * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J, k))
+                Uᴶ[I, J, k]  = ℑ((ρᴵ, u), (2,), (Face(),), I, J, k)
+                Vᴵ[I, J, k]  = ℑ((ρᴶ, v), (1,), (Face(),), I, J, k)
             end
         end
     end
-    # xYZ edges: ωx = ∂w/∂y - ∂v/∂z, times ρv and ρw, over ρ
-    @with mgr, let (irange, jrange, krange) = (axes(ωxvᴶᴷ, 1), faces(domain, 2), faces(domain, 3))
+    # xYZ edges: η_x = (∂w/∂y - ∂v/∂z) / ℑYZ(ρ), Vᴷ = ℑZ(ρᴶ v), Wᴶ = ℑY(ρᴷ w)
+    @with mgr, let (irange, jrange, krange) = (axes(η_x, 1), faces(domain, 2), faces(domain, 3))
         for K in krange, J in jrange
             @inbounds @vec for i in irange
-                ωx = inv_dy * δ(w, (2,), (Face(),), i, J, K) - inv_dz * δ(v, (3,), (Face(),), i, J, K)
-                ωxvᴶᴷ[i, J, K] = ωx * ℑ((ρᴶ, v), (3,), (Face(),), i, J, K) * inv(ℑ(ρ, (2, 3), (Face(), Face()), i, J, K))
-                ωxwᴶᴷ[i, J, K] = ωx * ℑ((ρᴷ, w), (2,), (Face(),), i, J, K) * inv(ℑ(ρ, (2, 3), (Face(), Face()), i, J, K))
+                ω_x = inv_dy * δ(w, (2,), (Face(),), i, J, K) - inv_dz * δ(v, (3,), (Face(),), i, J, K)
+                η_x[i, J, K] = ω_x * inv(ℑ(ρ, (2, 3), (Face(), Face()), i, J, K))
+                Vᴷ[i, J, K]  = ℑ((ρᴶ, v), (3,), (Face(),), i, J, K)
+                Wᴶ[i, J, K]  = ℑ((ρᴷ, w), (2,), (Face(),), i, J, K)
             end
         end
     end
-    periodize!(model, (ωywᴵᴷ, ωyuᴵᴷ, ωzuᴵᴶ, ωzvᴵᴶ, ωxvᴶᴷ, ωxwᴶᴷ))
+    periodize!(model, (η_y, Wᴵ, Uᴷ, η_z, Uᴶ, Vᴵ, η_x, Vᴷ, Wᴶ))
 
-    # faces: (ω×u)_x = ωy w - ωz v, (ω×u)_y = ωz u - ωx w, (ω×u)_z = ωx v - ωy u
+    # u-faces: (ω×u)_x = ω_y w - ω_z v = ℑz(η_y Wᴵ) - ℑy(η_z Vᴵ)
     @with mgr, let (irange, jrange, krange) = (faces(domain, 1), cells(domain, 2), cells(domain, 3))
         for k in krange, j in jrange
             @inbounds @vec for I in irange
-                fx[I, j, k] = ℑ(ωywᴵᴷ, (3,), (Cell(),), I, j, k) - ℑ(ωzvᴵᴶ, (2,), (Cell(),), I, j, k)
+                vortex_x[I, j, k] = ℑ((η_y, Wᴵ), (3,), (Cell(),), I, j, k) - ℑ((η_z, Vᴵ), (2,), (Cell(),), I, j, k)
             end
         end
     end
+    # v-faces: (ω×u)_y = ω_z u - ω_x w = ℑx(η_z Uᴶ) - ℑz(η_x Wᴶ)
     @with mgr, let (irange, jrange, krange) = (cells(domain, 1), faces(domain, 2), cells(domain, 3))
         for k in krange, J in jrange
             @inbounds @vec for i in irange
-                fy[i, J, k] = ℑ(ωzuᴵᴶ, (1,), (Cell(),), i, J, k) - ℑ(ωxwᴶᴷ, (3,), (Cell(),), i, J, k)
+                vortex_y[i, J, k] = ℑ((η_z, Uᴶ), (1,), (Cell(),), i, J, k) - ℑ((η_x, Wᴶ), (3,), (Cell(),), i, J, k)
             end
         end
     end
+    # w-faces: (ω×u)_z = ω_x v - ω_y u = ℑy(η_x Vᴷ) - ℑx(η_y Uᴷ)
     @with mgr, let (irange, jrange, krange) = (cells(domain, 1), cells(domain, 2), faces(domain, 3))
         for K in krange, j in jrange
             @inbounds @vec for i in irange
-                fz[i, j, K] = ℑ(ωxvᴶᴷ, (2,), (Cell(),), i, j, K) - ℑ(ωyuᴵᴷ, (1,), (Cell(),), i, j, K)
+                vortex_z[i, j, K] = ℑ((η_x, Vᴷ), (2,), (Cell(),), i, j, K) - ℑ((η_y, Uᴷ), (1,), (Cell(),), i, j, K)
             end
         end
     end
-    periodize!(model, (fx, fy, fz))
+    periodize!(model, (vortex_x, vortex_y, vortex_z))
 
-    return fx, fy, fz, (ρᴵ, ρᴶ, ρᴷ, ωywᴵᴷ, ωyuᴵᴷ, ωzuᴵᴶ, ωzvᴵᴶ, ωxvᴶᴷ, ωxwᴶᴷ)
+    return vortex_x, vortex_y, vortex_z, (ρᴵ, ρᴶ, ρᴷ, η_x, η_y, η_z, Uᴶ, Uᴷ, Vᴵ, Vᴷ, Wᴵ, Wᴶ)
 end
 
-# 3D, enstrophy-type: ζ = ω/ρ and the mass fluxes interpolated separately to the faces, then multiplied (enstrophy-
-# conserving in 2D)
-function vortex_force!((fx_, fy_, fz_, (ρᴵ_, ρᴶ_, ρᴷ_, ζyᴵᴷ_, ρwᴵᴷ_, ρuᴵᴷ_, ζzᴵᴶ_, ρuᴵᴶ_, ρvᴵᴶ_, ζxᴶᴷ_, ρvᴶᴷ_, ρwᴶᴷ_)),
-                       model, ::VortexEnstrophyCons, (u, v, w)::NTuple{3}, ρ)
-    (; mgr, domain, inv_dx, inv_dy, inv_dz, spatial_scheme) = model
-    (; ℑ, δ) = operators(spatial_scheme)
-    F = eltype(u)
-
-    fx          = alloc!(fx_, F, domain, (Face(), Cell(), Cell()))
-    fy          = alloc!(fy_, F, domain, (Cell(), Face(), Cell()))
-    fz          = alloc!(fz_, F, domain, (Cell(), Cell(), Face()))
-    ζyᴵᴷ        = alloc!(ζyᴵᴷ_, F, domain, (Face(), Cell(), Face()))
-    ρwᴵᴷ        = alloc!(ρwᴵᴷ_, F, domain, (Face(), Cell(), Face()))
-    ρuᴵᴷ        = alloc!(ρuᴵᴷ_, F, domain, (Face(), Cell(), Face()))
-    ζzᴵᴶ        = alloc!(ζzᴵᴶ_, F, domain, (Face(), Face(), Cell()))
-    ρuᴵᴶ        = alloc!(ρuᴵᴶ_, F, domain, (Face(), Face(), Cell()))
-    ρvᴵᴶ        = alloc!(ρvᴵᴶ_, F, domain, (Face(), Face(), Cell()))
-    ζxᴶᴷ        = alloc!(ζxᴶᴷ_, F, domain, (Cell(), Face(), Face()))
-    ρvᴶᴷ        = alloc!(ρvᴶᴷ_, F, domain, (Cell(), Face(), Face()))
-    ρwᴶᴷ        = alloc!(ρwᴶᴷ_, F, domain, (Cell(), Face(), Face()))
-    ρᴵ, ρᴶ, ρᴷ  = face_densities!((ρᴵ_, ρᴶ_, ρᴷ_), model, ρ)
-
-    # XyZ edges: ζy = ωy / ρ, ρw and ρu
-    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), axes(ζyᴵᴷ, 2), faces(domain, 3))
-        for K in krange, j in jrange
-            @inbounds @vec for I in irange
-                ζyᴵᴷ[I, j, K] = (inv_dz * δ(u, (3,), (Face(),), I, j, K) - inv_dx * δ(w, (1,), (Face(),), I, j, K)) * inv(ℑ(ρ, (1, 3), (Face(), Face()), I, j, K))
-                ρwᴵᴷ[I, j, K] = ℑ((ρᴷ, w), (1,), (Face(),), I, j, K)
-                ρuᴵᴷ[I, j, K] = ℑ((ρᴵ, u), (3,), (Face(),), I, j, K)
-            end
-        end
-    end
-    # XYz edges: ζz = ωz / ρ, ρu and ρv
-    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), faces(domain, 2), axes(ζzᴵᴶ, 3))
-        for k in krange, J in jrange
-            @inbounds @vec for I in irange
-                ζzᴵᴶ[I, J, k] = (inv_dx * δ(v, (1,), (Face(),), I, J, k) - inv_dy * δ(u, (2,), (Face(),), I, J, k)) * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J, k))
-                ρuᴵᴶ[I, J, k] = ℑ((ρᴵ, u), (2,), (Face(),), I, J, k)
-                ρvᴵᴶ[I, J, k] = ℑ((ρᴶ, v), (1,), (Face(),), I, J, k)
-            end
-        end
-    end
-    # xYZ edges: ζx = ωx / ρ, ρv and ρw
-    @with mgr, let (irange, jrange, krange) = (axes(ζxᴶᴷ, 1), faces(domain, 2), faces(domain, 3))
-        for K in krange, J in jrange
-            @inbounds @vec for i in irange
-                ζxᴶᴷ[i, J, K] = (inv_dy * δ(w, (2,), (Face(),), i, J, K) - inv_dz * δ(v, (3,), (Face(),), i, J, K)) * inv(ℑ(ρ, (2, 3), (Face(), Face()), i, J, K))
-                ρvᴶᴷ[i, J, K] = ℑ((ρᴶ, v), (3,), (Face(),), i, J, K)
-                ρwᴶᴷ[i, J, K] = ℑ((ρᴷ, w), (2,), (Face(),), i, J, K)
-            end
-        end
-    end
-    periodize!(model, (ζyᴵᴷ, ρwᴵᴷ, ρuᴵᴷ, ζzᴵᴶ, ρuᴵᴶ, ρvᴵᴶ, ζxᴶᴷ, ρvᴶᴷ, ρwᴶᴷ))
-
-    # faces: (ω×u)_x = ωy w - ωz v, (ω×u)_y = ωz u - ωx w, (ω×u)_z = ωx v - ωy u
-    @with mgr, let (irange, jrange, krange) = (faces(domain, 1), cells(domain, 2), cells(domain, 3))
-        for k in krange, j in jrange
-            @inbounds @vec for I in irange
-                fx[I, j, k] = ℑ(ζyᴵᴷ, (3,), (Cell(),), I, j, k) * ℑ(ρwᴵᴷ, (3,), (Cell(),), I, j, k) - ℑ(ζzᴵᴶ, (2,), (Cell(),), I, j, k) * ℑ(ρvᴵᴶ, (2,), (Cell(),), I, j, k)
-            end
-        end
-    end
-    @with mgr, let (irange, jrange, krange) = (cells(domain, 1), faces(domain, 2), cells(domain, 3))
-        for k in krange, J in jrange
-            @inbounds @vec for i in irange
-                fy[i, J, k] = ℑ(ζzᴵᴶ, (1,), (Cell(),), i, J, k) * ℑ(ρuᴵᴶ, (1,), (Cell(),), i, J, k) - ℑ(ζxᴶᴷ, (3,), (Cell(),), i, J, k) * ℑ(ρwᴶᴷ, (3,), (Cell(),), i, J, k)
-            end
-        end
-    end
-    @with mgr, let (irange, jrange, krange) = (cells(domain, 1), cells(domain, 2), faces(domain, 3))
-        for K in krange, j in jrange
-            @inbounds @vec for i in irange
-                fz[i, j, K] = ℑ(ζxᴶᴷ, (2,), (Cell(),), i, j, K) * ℑ(ρvᴶᴷ, (2,), (Cell(),), i, j, K) - ℑ(ζyᴵᴷ, (1,), (Cell(),), i, j, K) * ℑ(ρuᴵᴷ, (1,), (Cell(),), i, j, K)
-            end
-        end
-    end
-    periodize!(model, (fx, fy, fz))
-
-    return fx, fy, fz, (ρᴵ, ρᴶ, ρᴷ, ζyᴵᴷ, ρwᴵᴷ, ρuᴵᴷ, ζzᴵᴶ, ρuᴵᴶ, ρvᴵᴶ, ζxᴶᴷ, ρvᴶᴷ, ρwᴶᴷ)
-end
-
-# face densities ρᴵ = ℑ(ρ, (1,), (Face(),)), ρᴶ = ℑ(ρ, (2,), (Face(),)) or ℑ(ρ, (2,), (Face(),)) (2D), ρᴷ = ℑ(ρ, (2,), (Face(),)), over the full axes along which they are not
+# face densities ρᴵ = ℑX(ρ), ρᴶ = ℑY(ρ) (ℑZ(ρ) in 2D), ρᴷ = ℑZ(ρ), over the full axes along which they are not
 # interpolated; ρ is a cell array or a vertical profile
 function face_densities!(scratch, model, ρ)
     (; domain) = model
@@ -281,7 +303,7 @@ function face_densities!((ρᴵ_, ρᴶ_), model, ::Box2D, ρ)
     return ρᴵ, ρᴶ
 end
 # vertical profile (e.g. an anelastic reference density): the face densities are profiles too, ρᴵ = ρ on the cells and
-# ρᴶ = ℑ(ρ, (2,), (Face(),)) on the w-faces
+# ρᴶ = ℑZ(ρ) on the w-faces
 function face_densities!((ρᴵ_, ρᴶ_), model, ::Box2D, ρ::AbstractVector)
     (; domain, spatial_scheme) = model
     (; ℑ) = operators(spatial_scheme)
