@@ -1,25 +1,39 @@
-## spatial schemes: the averages and differences of the C-grid
+## spatial schemes: the interpolations and differences of the C-grid
 
 """
     SpatialScheme
 
-Discretisation of the averages and differences on the C-grid, given by `operators(scheme)`. A scheme supplies
-matching pairs (avg_x with dif_X, …): energy consistency relies on their summation by parts.
+Discretisation of the interpolation and difference on the C-grid, given by `operators(scheme)`. A scheme supplies a
+matching pair: energy consistency relies on the summation by parts of `δ` onto faces with `ℑ` onto cells.
 """
 abstract type SpatialScheme end
 
 """
     Centred2()
 
-Second-order centred scheme: two-point averages and differences (see `avg_x`, `dif_x`).
+Second-order centred scheme: two-point interpolation and difference (see `ℑ`, `δ`).
 """
 struct Centred2 <: SpatialScheme end
 
 """
     ops = operators(scheme::SpatialScheme)
 
-Return the averages and differences of `scheme` as a named tuple: `avg_x, avg_z, avg_X, avg_Z, avg_xz, avg_xZ,
-avg_Xz, avg_XZ, dif_x, dif_z, dif_X, dif_Z` (lower case: onto cells, upper case: onto faces). Unpack them in a
-kernel, `(; avg_X, dif_X) = operators(model.spatial_scheme)`, at no runtime cost.
+Return the interpolation `ℑ` and difference `δ` of `scheme` as a named tuple. Unpack them in a kernel,
+`(; ℑ, δ) = operators(spatial_scheme)`, at no runtime cost.
 """
-operators(::Centred2) = (; avg_x, avg_z, avg_X, avg_Z, avg_xz, avg_xZ, avg_Xz, avg_XZ, dif_x, dif_z, dif_X, dif_Z)
+operators(::Centred2) = (; ℑ, δ)
+
+"""
+    halo_width(scheme::SpatialScheme)
+
+Return the number of halo cells the stencils of `scheme` reach beyond the interior.
+"""
+halo_width(::Centred2) = 1
+
+"""
+    check_halo(domain, scheme::SpatialScheme)
+
+Check that the halo of `domain` is wide enough for the stencils of `scheme`.
+"""
+check_halo(domain, scheme::SpatialScheme) =
+    all(≥(halo_width(scheme)), halo_size(domain)) || error("$scheme needs a halo of $(halo_width(scheme)) cells, got $(halo_size(domain)).")

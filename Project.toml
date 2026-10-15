@@ -11,7 +11,9 @@ ManagedLoops = "0.1.13"
 julia = "1.6.7"
 
 [extras]
+LoopManagers = "d33d4f76-8fbe-47a6-acd9-ead534c583ff"
+MutatingOrNot = "6a37069a-9a67-4b2d-a34a-f09ab4b23c7c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["LoopManagers", "MutatingOrNot", "Test"]

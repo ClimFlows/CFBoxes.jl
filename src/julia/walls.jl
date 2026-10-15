@@ -181,16 +181,11 @@ rebuild(c, value) = Base.typename(typeof(c)).wrapper(value)
 # sample `f` on the slice across dimension `d` of a field staggered (dual) along the dimensions where `stagger` is true
 sample(v::Number, _...) = v
 function sample(f, d, stagger, domain, spacing)
-    H, others = halo_size(domain), Tuple(e for e in 1:length(spacing) if e != d)
-    n = map(e -> (stagger[e] ? dual_size : primal_size)(domain)[e], others)
-    coordinate(e, i) = (i - H[e] - (stagger[e] ? 1 : 0.5)) * spacing[e]
+    others = Tuple(e for e in 1:length(spacing) if e != d)
+    n = map(e -> (stagger[e] ? nfaces : ncells)(domain, e), others)
+    coordinate(e, i) = (stagger[e] ? facepoint : cellpoint)(domain, spacing[e], e, i)
     return [f(map(coordinate, others, Tuple(I))...) for I in CartesianIndices(n)]
 end
-
-primal_size(domain::Box2D) = (xdim(domain), zdim(domain))
-primal_size(domain::Box3D) = (xdim(domain), ydim(domain), zdim(domain))
-dual_size(domain::Box2D) = (Xdim(domain), Zdim(domain))
-dual_size(domain::Box3D) = (Xdim(domain), Ydim(domain), Zdim(domain))
 
 """
     bc_value(c, I...)
@@ -204,14 +199,6 @@ Value of a discretized condition `c` at slice index `I` along the wall.
 #####
 ##### Halos: one kernel along a dimension, dispatched on topology, staggering and ghost rule
 #####
-
-"""
-    Centred(), Faced()
-
-Staggering of an array along a dimension: values at cell centres, or on cell faces (where walls lie).
-"""
-struct Centred end
-struct Faced end
 
 # ghost rules: ghost(rule, v, I, dist) is the ghost value mirroring the interior value v across the wall, at
 # distance dist; I indexes the position along the wall
@@ -250,7 +237,7 @@ function fill_halo!(::Periodic, a, D::Val{d}, domain, staggering, rules, Δ) whe
     end
     return a
 end
-function fill_halo!(::Bounded, a, D::Val{d}, domain, ::Centred, (lower, upper), Δ) where d
+function fill_halo!(::Bounded, a, D::Val{d}, domain, ::Cell, (lower, upper), Δ) where d
     M, H = dims(domain)[d], halo_size(domain)[d]
     for I in slice(a, D), h in 1:H
         a[across(I, D, H+1-h)] = ghost(lower, a[across(I, D, H+h)], I, (2h-1) * Δ)
@@ -258,7 +245,7 @@ function fill_halo!(::Bounded, a, D::Val{d}, domain, ::Centred, (lower, upper), 
     end
     return a
 end
-function fill_halo!(::Bounded, a, D::Val{d}, domain, ::Faced, (lower, upper), Δ) where d
+function fill_halo!(::Bounded, a, D::Val{d}, domain, ::Face, (lower, upper), Δ) where d
     M, H = dims(domain)[d], halo_size(domain)[d]
     for I in slice(a, D)
         a[across(I, D, H+1)] = 0
@@ -287,8 +274,8 @@ function fill_velocity_halo!((; walls)::BoxBoundaryConditions, domain, velocity,
     end
     return velocity
 end
-staggering(::Val{d}, ::Val{d}) where d = Faced()          # normal component
-staggering(_, _) = Centred()                              # tangential component
+staggering(::Val{d}, ::Val{d}) where d = Face()         # normal component
+staggering(_, _) = Cell()                               # tangential component
 velocity_rules(::Nothing, C, D, μ) = nothing
 velocity_rules(::Tuple{Wall, Wall}, ::Val{d}, ::Val{d}, μ) where d = (Odd(), Odd())
 velocity_rules((lower, upper)::Tuple{Wall, Wall}, ::Val{c}, D, μ) where c = (Tangential{c}(lower.tangential, μ), Tangential{c}(upper.tangential, μ))
@@ -301,7 +288,7 @@ Fill the halo of the cell-centred array `a` (trailing dimensions allowed): perio
 zero normal gradient across walls (ghosts mirror the fluid cells). Return `a`.
 """
 fill_halo!(a::AbstractArray, domain, rule::ZeroGradient) =
-    (foreach_dim(D -> fill_halo!(pick(boundary_topology(domain), D), a, D, domain, Centred(), (rule, rule), 1), domain); a)
+    (foreach_dim(D -> fill_halo!(pick(boundary_topology(domain), D), a, D, domain, Cell(), (rule, rule), 1), domain); a)
 fill_halo!(arrays::Tuple, domain, rule::ZeroGradient) = (map(a -> fill_halo!(a, domain, rule), arrays); nothing)
 
 """
@@ -317,13 +304,13 @@ periodize!(topology::Periodic, a, D, domain) = fill_halo!(topology, a, D, domain
 periodize!(::Bounded, a, D, domain) = a
 
 """
-    zero_halo!(domain, a, staggering)
+    zero_halo!(domain, a, location::Tuple)
 
-Set the halo of `a` to zero, and its values on walls along dimensions where it is `Faced()` (normal components),
-`staggering` giving `Centred()` or `Faced()` per dimension.
+Set the halo of `a` (on the grid `location`, e.g. `(Face(), Cell())`; trailing dimensions allowed) to zero, and its
+values on the walls it is staggered across (normal components, e.g. u on the x walls). Return `a`.
 """
-zero_halo!(domain, a, staggering) =
-    (foreach_dim(D -> zero_halo!(pick(boundary_topology(domain), D), a, D, domain, pick(staggering, D)), domain); a)
+zero_halo!(domain, a, location::Tuple) =
+    (foreach_dim(D -> zero_halo!(pick(boundary_topology(domain), D), a, D, domain, pick(location, D)), domain); a)
 function zero_halo!(topology, a, D::Val{d}, domain, s) where d
     M, H = dims(domain)[d], halo_size(domain)[d]
     w = wall_width(topology, s)
@@ -337,7 +324,7 @@ function zero_halo!(topology, a, D::Val{d}, domain, s) where d
     end
     return a
 end
-wall_width(::Bounded, ::Faced) = 1
+wall_width(::Bounded, ::Face) = 1
 wall_width(_, _) = 0
 
 """
@@ -363,8 +350,8 @@ The two walls across the bounded dimension `D`, each as `(; face, cell, n)`: the
 and of the adjacent cells, and the normal `n` (+1 lower, -1 upper) pointing into the fluid. Combine with
 `slice`/`across` to address the wall along the other dimensions.
 """
-wall_sides(domain, ::Val{d}) where d = let M = dims(domain)[d], H = halo_size(domain)[d]
-    ((face = H+1, cell = H+1, n = 1), (face = H+M+1, cell = H+M, n = -1))
+wall_sides(domain, ::Val{d}) where d = let faces = interior_faces(domain, d), cells = interior_cells(domain, d)
+    ((face = first(faces), cell = first(cells), n = 1), (face = last(faces), cell = last(cells), n = -1))
 end
 
 # apply f(Val(d)) for each dimension d of a tuple or a box (unrolled, so that d is known at compile time)
@@ -372,6 +359,3 @@ end
 @inline foreach_dim(f, domain) = foreach_dim(f, dims(domain))
 # element d of a tuple, with d known at compile time
 @inline pick(t::Tuple, ::Val{d}) where d = t[d]
-# indices of `a` with dimension d removed, and the index with k inserted at dimension d
-@inline slice(a, ::Val{d}) where d = CartesianIndices(ntuple(e -> axes(a, e < d ? e : e + 1), Val(ndims(a) - 1)))
-@inline across(I::CartesianIndex{N}, ::Val{d}, k) where {N, d} = CartesianIndex(ntuple(e -> e < d ? I[e] : e == d ? k : I[e-1], Val(N + 1)))
