@@ -1,9 +1,9 @@
-# Vortex force ω×u: no work done by the energy-conserving schemes (2D and 3D), 3D reduces to 2D, uniform density
-# reduces to the density-free formulas, no allocations once the scratch exists
+#=
+Vortex force ω×u: no work done by the energy-conserving schemes (2D and 3D), a density profile equals the cell array
+it stands for, uniform density gives the density-free formulas, 3D reduces to 2D, no allocations once the scratch exists
+=#
 
-using MutatingOrNot: void
-using LoopManagers: PlainCPU
-
+# bytes allocated by vortex_force!, typed so that the tuple arguments are not boxed
 vortex_bytes(out, model, scheme, velocity, ρ) =
     (vortex_force!(out, model, scheme, velocity, ρ); @allocated vortex_force!(out, model, scheme, velocity, ρ))
 
@@ -13,12 +13,12 @@ vortex_bytes(out, model, scheme, velocity, ρ) =
     box3 = Box3D(Mx = 8, My = 4, Mz = 6, boundary = (Periodic, Periodic, Periodic))
     model2 = (mgr = PlainCPU(), domain = box2, spatial_scheme = Centred2(), inv_dx = 1 / dx, inv_dz = 1 / dz)
     model3 = (mgr = PlainCPU(), domain = box3, spatial_scheme = Centred2(), inv_dx = 1 / dx, inv_dy = 1 / dy, inv_dz = 1 / dz)
-    random(box, location) = (a = rand(size(alloc(Float64, nothing, box, location))...); a .-= 0.5; a)
+    random(box, location) = rand(size(alloc(Float64, nothing, box, location))...) .- 0.5      # in [-0.5, 0.5)
 
     # periodic 2D fields, halos filled
     u, w = random(box2, (Face(), Cell())), random(box2, (Cell(), Face()))
     ρ = 1 .+ rand(size(alloc(Float64, nothing, box2, (Cell(), Cell())))...)
-    periodize!(model2, (u, w, ρ))
+    periodize!(box2, (u, w, ρ))
     Iu, Ju = interior_faces(box2, 1), interior_cells(box2, 2)
     Iw, Jw = interior_cells(box2, 1), interior_faces(box2, 2)
 
@@ -28,19 +28,21 @@ vortex_bytes(out, model, scheme, velocity, ρ) =
         # work of the vortex force, Σ U vortex_x + Σ W vortex_z with the mass fluxes U = ρᴵ u, W = ρᴶ w
         work = sum(ρᴵ[Iu, Ju] .* u[Iu, Ju] .* vortex_x[Iu, Ju]) + sum(ρᴶ[Iw, Jw] .* w[Iw, Jw] .* vortex_z[Iw, Jw])
         scale = sum(abs, ρᴵ[Iu, Ju] .* u[Iu, Ju] .* vortex_x[Iu, Ju])
-        scheme isa VortexEnstrophyCons || @test abs(work) < 1e-13 * scale
+        scheme isa VortexEnstrophyCons || @test abs(work) < 1e-13 * scale      # Sadourny's eq. 4 is not energy-conserving
 
         # no allocations once the scratch exists
         @test vortex_bytes((vortex_x, vortex_z, scratch), model2, scheme, (u, w), ρ) == 0
     end
 
-    # a vertical profile gives the same force as the cell array it stands for (box bounded in z, as for a reference
-    # profile)
+    #=
+    a vertical profile gives the same force as the cell array it stands for (box bounded in z, as for a reference
+    profile)
+    =#
     @testset "2D, density profile, $scheme" for scheme in (VortexEnergyCons(), VortexEnstrophyCons(), VortexEnergyEnstrophyCons())
         box = Box2D(Mx = 8, Mz = 6, boundary = (Periodic, Bounded))
         model = (; model2..., domain = box)
         ub, wb = random(box, (Face(), Cell())), random(box, (Cell(), Face()))
-        periodize!(model, (ub, wb))
+        periodize!(box, (ub, wb))
         ρ_z = 1 .+ rand(ncells(box, 2))
         ρ_xz = [ρ_z[j] for i in 1:ncells(box, 1), j in 1:ncells(box, 2)]
         vortex_x, vortex_z, scratch = vortex_force!((void, void, void), model, scheme, (ub, wb), ρ_z)
@@ -74,11 +76,11 @@ vortex_bytes(out, model, scheme, velocity, ρ) =
         @test all(iszero, vortex3_y[interior_cells(box3, 1), interior_faces(box3, 2), interior_cells(box3, 3)])
     end
 
-    # the energy-conserving 3D force does no work on random fields
+    # the energy-conserving 3D force does no work on random fields: Σ U vortex_x + Σ V vortex_y + Σ W vortex_z = 0
     @testset "3D, no work" begin
         u3, v3, w3 = random(box3, (Face(), Cell(), Cell())), random(box3, (Cell(), Face(), Cell())), random(box3, (Cell(), Cell(), Face()))
         ρ3 = 1 .+ rand(size(alloc(Float64, nothing, box3, (Cell(), Cell(), Cell())))...)
-        periodize!(model3, (u3, v3, w3, ρ3))
+        periodize!(box3, (u3, v3, w3, ρ3))
         vortex_x, vortex_y, vortex_z, scratch = vortex_force!((void, void, void, void), model3, VortexEnergyCons(), (u3, v3, w3), ρ3)
         ρᴵ, ρᴶ, ρᴷ = scratch[1], scratch[2], scratch[3]
         X, Y, Z = interior_faces(box3, 1), interior_faces(box3, 2), interior_faces(box3, 3)

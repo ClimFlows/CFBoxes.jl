@@ -1,17 +1,16 @@
-## the vortex force ω×u on the C-grid, from the velocity and the density at the cells (Sadourny 1975, Arakawa & Lamb 1981)
-#
-# Notation, after Sadourny (1975) with his y → z (his rot V is -ω here); ℑ, δ in lower case onto the cells, upper case
-# onto the faces, as in operators.jl:
-#   ω  = δZ u / Δz - δX w / Δx     vorticity at the vertices (XZ)
-#   η  = ω / ℑXZ(ρ)                potential vorticity at the vertices (q in Arakawa & Lamb 1981 and Salmon 2004)
-#   U  = ρᴵ u,  W = ρᴶ w           mass fluxes on the u- and w-faces, with the face densities ρᴵ = ℑX(ρ), ρᴶ = ℑZ(ρ)
-#   Uᴶ = ℑZ(U), Wᴵ = ℑX(W)         mass fluxes interpolated to the vertices
-# vortex_x = (ω×u)_x = ω w on the u-faces and vortex_z = (ω×u)_z = -ω u on the w-faces; the momentum tendency is -ω×u.
-# Sadourny's two schemes share η, Uᴶ, Wᴵ and differ only in how the products reach the faces (his eqs 3 and 4).
-# The face densities are those of the tracer fluxes, so that with the energy-conserving scheme
-# Σ U vortex_x + Σ W vortex_z = 0: the vortex force does no work.
-#
-# `model` is any object with the fields `mgr`, `domain`, `spatial_scheme` and `inv_dx`, `inv_dz` (plus `inv_dy` in 3D).
+#=
+The vortex force ω×u on the C-grid, from the velocity and the density at the cells (Sadourny 1975, Arakawa & Lamb 1981).
+
+Notation, after Sadourny (1975) with his y → z (his rot V is -ω here), and the ℑ, δ shorthand of operators.jl:
+  ω  = δZ u / Δz - δX w / Δx     vorticity at the vertices (XZ)
+  η  = ω / ℑXZ(ρ)                potential vorticity at the vertices (q in Arakawa & Lamb 1981 and Salmon 2004)
+  U  = ρᴵ u,  W = ρᴶ w           mass fluxes on the u- and w-faces, with the face densities ρᴵ = ℑX(ρ), ρᴶ = ℑZ(ρ)
+  Uᴶ = ℑZ(U), Wᴵ = ℑX(W)         mass fluxes interpolated to the vertices
+vortex_x = (ω×u)_x = ω w on the u-faces and vortex_z = (ω×u)_z = -ω u on the w-faces; the momentum tendency is -ω×u.
+Sadourny's two schemes share η, Uᴶ, Wᴵ and differ only in how the products reach the faces (his eqs 3 and 4).
+With the energy-conserving schemes Σ U vortex_x + Σ W vortex_z = 0: the vortex force does no work on the mass fluxes,
+whose face densities models also use for the tracer fluxes.
+=#
 
 """
     vortex_x, vortex_z, scratch = vortex_force!((vortex_x, vortex_z, scratch), model, scheme::VortexScheme, (u, w), ρ)
@@ -21,6 +20,11 @@ w-faces, with ω = ∂u/∂z - ∂w/∂x at the vertices, the velocity `(u, w)` 
 a cell array, or a vertical profile (a vector, e.g. the anelastic reference density). The momentum tendencies are
 `-vortex_x` and `-vortex_z`. `scheme` is `VortexEnergyCons()` or `VortexEnstrophyCons()` (Sadourny 1975, eqs 3 and 4),
 or `VortexEnergyEnstrophyCons()` (Arakawa & Lamb 1981).
+
+The outputs and `scratch` (a tuple of intermediate arrays, which depends on the scheme) are reused when given as
+arrays, and allocated when given as `void`. The first arrays of `scratch` are the face densities, `(ρᴵ, ρᴶ)` in 2D
+and `(ρᴵ, ρᴶ, ρᴷ)` in 3D.
+`model` has the fields `mgr`, `domain`, `spatial_scheme`, `inv_dx` and `inv_dz` (and `inv_dy` in 3D).
 
     vortex_x, vortex_y, vortex_z, scratch = vortex_force!((vortex_x, vortex_y, vortex_z, scratch), model,
                                                           VortexEnergyCons(), (u, v, w), ρ)
@@ -47,14 +51,19 @@ function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, Uᴶ_, Wᴵ_
             Wᴵ[I, J] = ℑ((ρᴶ, w), (1,), (Face(),), I, J)
         end
     end
-    periodize!(model, (η, Uᴶ, Wᴵ))
+    periodize!(domain, (η, Uᴶ, Wᴵ))
 
     vortex_x, vortex_z = vortex_faces!((vortex_x_, vortex_z_), model, scheme, (η, Uᴶ, Wᴵ))
     return vortex_x, vortex_z, (ρᴵ, ρᴶ, η, Uᴶ, Wᴵ)
 end
 
-# Sadourny (1975) eq. 3, energy-conserving: the products at the vertices, interpolated to the faces,
-#   vortex_x = ℑz(η Wᴵ),  vortex_z = -ℑx(η Uᴶ)
+"""
+    vortex_x, vortex_z = vortex_faces!((vortex_x, vortex_z), model, scheme, (η, Uᴶ, Wᴵ))
+
+The 2D vortex force on the faces from η and the mass fluxes at the vertices. `VortexEnergyCons()` (Sadourny 1975,
+eq. 3) interpolates the products at the vertices, `vortex_x = ℑz(η Wᴵ)`, `vortex_z = -ℑx(η Uᴶ)`;
+`VortexEnstrophyCons()` (eq. 4) multiplies the interpolations, `vortex_x = ℑz(η) ℑz(Wᴵ)`, `vortex_z = -ℑx(η) ℑx(Uᴶ)`.
+"""
 function vortex_faces!((vortex_x_, vortex_z_), model, ::VortexEnergyCons, (η, Uᴶ, Wᴵ))
     (; mgr, domain, spatial_scheme) = model
     (; ℑ) = operators(spatial_scheme)
@@ -75,13 +84,10 @@ function vortex_faces!((vortex_x_, vortex_z_), model, ::VortexEnergyCons, (η, U
             vortex_z[i, J] = -ℑ((η, Uᴶ), (1,), (Cell(),), i, J)
         end
     end
-    periodize!(model, (vortex_x, vortex_z))
+    periodize!(domain, (vortex_x, vortex_z))
     return vortex_x, vortex_z
 end
 
-# Sadourny (1975) eq. 4, enstrophy-conserving (2D only): η and the mass fluxes interpolated to the faces separately,
-# then multiplied,
-#   vortex_x = ℑz(η) ℑz(Wᴵ),  vortex_z = -ℑx(η) ℑx(Uᴶ)
 function vortex_faces!((vortex_x_, vortex_z_), model, ::VortexEnstrophyCons, (η, Uᴶ, Wᴵ))
     (; mgr, domain, spatial_scheme) = model
     (; ℑ) = operators(spatial_scheme)
@@ -102,23 +108,25 @@ function vortex_faces!((vortex_x_, vortex_z_), model, ::VortexEnstrophyCons, (η
             vortex_z[i, J] = -ℑ(η, (1,), (Cell(),), i, J) * ℑ(Uᴶ, (1,), (Cell(),), i, J)
         end
     end
-    periodize!(model, (vortex_x, vortex_z))
+    periodize!(domain, (vortex_x, vortex_z))
     return vortex_x, vortex_z
 end
 
-# Arakawa & Lamb (1981) eqs 3.5, 3.6 and 3.34, energy- and potential-enstrophy-conserving (2D only), with their
-# (i, j) → our (I, J) vertices, (i+½, j+½) → (i, j) cells, u* → U, v* → W, q → -η (their ζ is -ω); their rotation
-# terms, linear in q, are then -vortex. Each mass flux on a face of a cell is weighted by a combination of the four η
-# around that cell:
-#   α, β, γ, δ = ηⁱʲ/4 ± δη_xz/48     ηⁱʲ = ℑxz(η), δη_xz = δxδz(η) (the diagonal minus the anti-diagonal pair)
-#   ε = Δz/Δx δz ℑx(η) / 12,  φ = -Δx/Δz δx ℑz(η) / 12   (AL's "unphysical Coriolis" terms, U on U, W on W)
-# AL's grid is square: on rectangular cells, their scheme holds for the circulations uΔx, wΔz and the transports UΔz,
-# WΔx, which leaves the aspect ratio in ε and φ only.
-# With Uⁱ = ℑx(U), Wʲ = ℑz(W) and the differences δU_x = δx(U), δW_z = δz(W) at the cells, eqs 3.5 and 3.6 read
-#   vortex_x =  ℑX(ηⁱʲ Wʲ) + δX(δη_xz δW_z) / 48 - 2 δX(ε Uⁱ) + U δX(ε)
-#   vortex_z = -ℑZ(ηⁱʲ Uⁱ) - δZ(δη_xz δU_x) / 48 - 2 δZ(φ Wʲ) + W δZ(φ)
-# The cell values come from ηʲ = ℑz(η) and δη_z = δz(η) on the u-faces. The force does no work, and conserves the
-# potential enstrophy Σ ℑXZ(ρ) η²/2 for any mass flux, divergent or not.
+#=
+Arakawa & Lamb (1981) eqs 3.5, 3.6 and 3.34, energy- and potential-enstrophy-conserving (2D only), with their
+(i, j) → our (I, J) vertices, (i+½, j+½) → (i, j) cells, u* → U, v* → W, q → -η (their ζ is -ω); their rotation
+terms, linear in q, are then -vortex. Each mass flux on a face of a cell is weighted by a combination of the four η
+around that cell:
+  α, β, γ, δ = ηⁱʲ/4 ± δη_xz/48     ηⁱʲ = ℑxz(η), δη_xz = δxδz(η) (the diagonal minus the anti-diagonal pair)
+  ε = Δz/Δx δz ℑx(η) / 12,  φ = -Δx/Δz δx ℑz(η) / 12   (AL's "unphysical Coriolis" terms, U on U, W on W)
+AL's grid is square: on rectangular cells, their scheme holds for the circulations uΔx, wΔz and the transports UΔz,
+WΔx, which leaves the aspect ratio in ε and φ only.
+With Uⁱ = ℑx(U), Wʲ = ℑz(W) and the differences δU_x = δx(U), δW_z = δz(W) at the cells, eqs 3.5 and 3.6 read
+  vortex_x =  ℑX(ηⁱʲ Wʲ) + δX(δη_xz δW_z) / 48 - 2 δX(ε Uⁱ) + U δX(ε)
+  vortex_z = -ℑZ(ηⁱʲ Uⁱ) - δZ(δη_xz δU_x) / 48 - 2 δZ(φ Wʲ) + W δZ(φ)
+The cell values come from ηʲ = ℑz(η) and δη_z = δz(η) on the u-faces. The force does no work, and conserves the
+potential enstrophy Σ ℑXZ(ρ) η²/2 for any mass flux, divergent or not.
+=#
 function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, ηʲ_, δη_z_, ηⁱʲ_, δη_xz_, ε_, φ_, Uⁱ_, Wʲ_, δU_x_, δW_z_)),
                        model, ::VortexEnergyEnstrophyCons, (u, w)::NTuple{2}, ρ)
     (; mgr, domain, inv_dx, inv_dz, spatial_scheme) = model
@@ -147,7 +155,7 @@ function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, ηʲ_, δη_
             η[I, J] = ω * inv(ℑ(ρ, (1, 2), (Face(), Face()), I, J))
         end
     end
-    periodize!(model, (η,))
+    periodize!(domain, (η,))
     # u-faces: ηʲ = ℑz(η), δη_z = δz(η)
     @with mgr, let (irange, jrange) = (axes(ηʲ, 1), cells(domain, 2))
         @inbounds @vec for I in irange, j in jrange
@@ -168,7 +176,7 @@ function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, ηʲ_, δη_
             δW_z[i, j]  = δ((ρᴶ, w), (2,), (Cell(),), i, j)
         end
     end
-    periodize!(model, (ηⁱʲ, δη_xz, ε, φ, Uⁱ, δU_x, Wʲ, δW_z))
+    periodize!(domain, (ηⁱʲ, δη_xz, ε, φ, Uⁱ, δU_x, Wʲ, δW_z))
 
     # u-faces
     @with mgr, let (irange, jrange) = (faces(domain, 1), cells(domain, 2))
@@ -184,13 +192,15 @@ function vortex_force!((vortex_x_, vortex_z_, (ρᴵ_, ρᴶ_, η_, ηʲ_, δη_
                              2 * δ((φ, Wʲ), (2,), (Face(),), i, J) + point((ρᴶ, w), i, J) * δ(φ, (2,), (Face(),), i, J)
         end
     end
-    periodize!(model, (vortex_x, vortex_z))
+    periodize!(domain, (vortex_x, vortex_z))
 
     return vortex_x, vortex_z, (ρᴵ, ρᴶ, η, ηʲ, δη_z, ηⁱʲ, δη_xz, ε, φ, Uⁱ, Wʲ, δU_x, δW_z)
 end
 
-# 3D, Sadourny's energy-conserving products on the edges, interpolated to the faces. Edges: η_x on xYZ (ᴶᴷ), η_y on
-# XyZ (ᴵᴷ), η_z on XYz (ᴵᴶ), each with the two mass fluxes U = ρᴵ u, V = ρᴶ v, W = ρᴷ w interpolated to it.
+#=
+3D, Sadourny's energy-conserving products on the edges, interpolated to the faces. Edges: η_x on xYZ (ᴶᴷ), η_y on
+XyZ (ᴵᴷ), η_z on XYz (ᴵᴶ), each with the two mass fluxes U = ρᴵ u, V = ρᴶ v, W = ρᴷ w interpolated to it.
+=#
 function vortex_force!((vortex_x_, vortex_y_, vortex_z_, (ρᴵ_, ρᴶ_, ρᴷ_, η_x_, η_y_, η_z_, Uᴶ_, Uᴷ_, Vᴵ_, Vᴷ_, Wᴵ_, Wᴶ_)),
                        model, ::VortexEnergyCons, (u, v, w)::NTuple{3}, ρ)
     (; mgr, domain, inv_dx, inv_dy, inv_dz, spatial_scheme) = model
@@ -244,7 +254,7 @@ function vortex_force!((vortex_x_, vortex_y_, vortex_z_, (ρᴵ_, ρᴶ_, ρᴷ_
             end
         end
     end
-    periodize!(model, (η_y, Wᴵ, Uᴷ, η_z, Uᴶ, Vᴵ, η_x, Vᴷ, Wᴶ))
+    periodize!(domain, (η_y, Wᴵ, Uᴷ, η_z, Uᴶ, Vᴵ, η_x, Vᴷ, Wᴶ))
 
     # u-faces: (ω×u)_x = ω_y w - ω_z v = ℑz(η_y Wᴵ) - ℑy(η_z Vᴵ)
     @with mgr, let (irange, jrange, krange) = (faces(domain, 1), cells(domain, 2), cells(domain, 3))
@@ -270,17 +280,20 @@ function vortex_force!((vortex_x_, vortex_y_, vortex_z_, (ρᴵ_, ρᴶ_, ρᴷ_
             end
         end
     end
-    periodize!(model, (vortex_x, vortex_y, vortex_z))
+    periodize!(domain, (vortex_x, vortex_y, vortex_z))
 
     return vortex_x, vortex_y, vortex_z, (ρᴵ, ρᴶ, ρᴷ, η_x, η_y, η_z, Uᴶ, Uᴷ, Vᴵ, Vᴷ, Wᴵ, Wᴶ)
 end
 
-# face densities ρᴵ = ℑX(ρ), ρᴶ = ℑY(ρ) (ℑZ(ρ) in 2D), ρᴷ = ℑZ(ρ), over the full axes along which they are not
-# interpolated; ρ is a cell array or a vertical profile
-function face_densities!(scratch, model, ρ)
-    (; domain) = model
-    return face_densities!(scratch, model, domain, ρ)
-end
+"""
+    ρᴵ, ρᴶ = face_densities!((ρᴵ, ρᴶ), model, ρ)
+    ρᴵ, ρᴶ, ρᴷ = face_densities!((ρᴵ, ρᴶ, ρᴷ), model, ρ)
+
+The densities on the faces, `ρᴵ = ℑX(ρ)`, `ρᴶ = ℑZ(ρ)` in 2D (`ℑY(ρ)`, then `ρᴷ = ℑZ(ρ)` in 3D), from the density
+`ρ` at the cells, over the full axes along which they are not interpolated. If `ρ` is a vertical profile (2D), so
+are the face densities: `ρᴵ = ρ` and `ρᴶ = ℑZ(ρ)` on the w-faces.
+"""
+face_densities!(scratch, model, ρ) = face_densities!(scratch, model, model.domain, ρ)
 function face_densities!((ρᴵ_, ρᴶ_), model, ::Box2D, ρ)
     (; mgr, domain, spatial_scheme) = model
     F = eltype(ρ)
@@ -299,11 +312,9 @@ function face_densities!((ρᴵ_, ρᴶ_), model, ::Box2D, ρ)
             ρᴶ[i, J] = ℑ(ρ, (2,), (Face(),), i, J)
         end
     end
-    periodize!(model, (ρᴵ, ρᴶ))
+    periodize!(domain, (ρᴵ, ρᴶ))
     return ρᴵ, ρᴶ
 end
-# vertical profile (e.g. an anelastic reference density): the face densities are profiles too, ρᴵ = ρ on the cells and
-# ρᴶ = ℑZ(ρ) on the w-faces
 function face_densities!((ρᴵ_, ρᴶ_), model, ::Box2D, ρ::AbstractVector)
     (; domain, spatial_scheme) = model
     (; ℑ) = operators(spatial_scheme)
@@ -315,6 +326,11 @@ function face_densities!((ρᴵ_, ρᴶ_), model, ::Box2D, ρ::AbstractVector)
     end
     return ρ, ρᴶ
 end
+"""
+    profile!(a, F, n) -> Vector
+
+Return `a` if it is a vector, else a new zero vector of `n` elements of type `F` (as `alloc!`, for a vertical profile).
+"""
 profile!(a::AbstractVector, F, n) = a
 profile!(_, F, n) = zeros(F, n)
 function face_densities!((ρᴵ_, ρᴶ_, ρᴷ_), model, ::Box3D, ρ)
@@ -347,6 +363,6 @@ function face_densities!((ρᴵ_, ρᴶ_, ρᴷ_), model, ::Box3D, ρ)
             end
         end
     end
-    periodize!(model, (ρᴵ, ρᴶ, ρᴷ))
+    periodize!(domain, (ρᴵ, ρᴶ, ρᴷ))
     return ρᴵ, ρᴶ, ρᴷ
 end
