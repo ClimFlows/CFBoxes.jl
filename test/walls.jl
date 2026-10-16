@@ -2,6 +2,10 @@
 
 wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n))
 
+# bytes allocated by fill_velocity_halo!, with fixed arguments: on Julia 1.10 the generic `allocations` boxes them
+velocity_halo_bytes(bcs, box, velocity, spacing, μ) =
+    (fill_velocity_halo!(bcs, box, velocity, spacing, μ); @allocated fill_velocity_halo!(bcs, box, velocity, spacing, μ))
+
 @testset "walls" begin
     # walls only on bounded sides, with the right number of tracer conditions, and HeatFlux only for the first tracer
     @testset "construction checks" begin
@@ -51,7 +55,7 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         @test w[6, 3:5] == w[5, 3:5]                                                  # free slip: ∂w/∂x = 0 on the right wall
         @test (u[:, 1] .+ u[:, 2]) ./ 2 ≈ U.(facepoint.(Ref(box), dx, 1, 1:7))         # moving bottom wall
         @test μ .* (u[:, 5] .- u[:, 4]) ./ dz ≈ fill(0.1, 7)                         # stress on the top wall
-        @test allocations(fill_velocity_halo!, bcs, box, (u, w), (dx, dz), μ) == 0
+        @test velocity_halo_bytes(bcs, box, (u, w), (dx, dz), μ) == 0
     end
 
     # with two halo cells, the second ghost mirrors the second fluid point, at distance 3Δ (cells) or 4Δ (faces)
@@ -80,7 +84,7 @@ wall(tangential, n = 2) = Wall(; tangential, tracers = ntuple(_ -> Flux(0.0), n)
         @test (u[2:5, 2:4, 1] .+ u[2:5, 2:4, 2]) ./ 2 ≈ ones(4, 3)                     # bottom moves at (1, y)
         @test (v[2:5, 2:5, 1] .+ v[2:5, 2:5, 2]) ./ 2 ≈ [facepoint(box, Δ[2], 2, J) for i in 2:5, J in 2:5]
         @test μ .* (v[2:5, 2:5, 4] .- v[2:5, 2:5, 3]) ./ Δ[3] ≈ fill(0.1, 4, 4)        # stress on the top wall
-        @test allocations(fill_velocity_halo!, bcs, box, (u, v, w), Δ, μ) == 0
+        @test velocity_halo_bytes(bcs, box, (u, v, w), Δ, μ) == 0
     end
 
     # zero-gradient halos: periodic copies along x, mirrored cells across the walls; trailing dimensions allowed
