@@ -1,11 +1,11 @@
-# Interpolations and differences: exact on linear fields, every destination in 2D and 3D, profile and product forms,
-# summation by parts, no allocations, and inside @vec loops
+#=
+Interpolations and differences: exact on linear fields, every destination in 2D and 3D, profiles and products,
+summation by parts, no allocations, inside @vec loops; and the SpatialScheme interface
+=#
 
 using ManagedLoops: @vec, @with
-using LoopManagers: VectorizedCPU
 
-# bytes allocated by a few operators, products included (a typed function: a generic f(args...) wrapper would box the
-# Float64 result)
+# bytes allocated by a few operators, products included; typed, as the generic `allocations` would box the Float64 result
 some_ops(a, b, v, i, j) = ℑ(a, (1, 2), (Face(), Face()), i, j) + δ((a, b), (1,), (Face(),), i, j) + ℑ((v, a), (2,), (Face(),), i, j)
 some_ops_bytes(a, b, v, i, j) = (some_ops(a, b, v, i, j); @allocated some_ops(a, b, v, i, j))
 
@@ -23,8 +23,10 @@ some_ops_bytes(a, b, v, i, j) = (some_ops(a, b, v, i, j); @allocated some_ops(a,
     @test ℑ(a2, (1, 2), (Face(), Cell()), i, j) == lin2(i - 0.5, j + 0.5) && ℑ(a2, (1, 2), (Face(), Face()), i, j) == lin2(i - 0.5, j - 0.5)
     @test δ(a2, (1,), (Cell(),), i, j) == δ(a2, (1,), (Face(),), i, j) == 2 && δ(a2, (2,), (Cell(),), i, j) == δ(a2, (2,), (Face(),), i, j) == 3
 
-    # every direction and every pair of directions in 3D, onto either staggering: Face() moves half a cell down, Cell()
-    # half a cell up
+    #=
+    every direction and every pair of directions in 3D, onto either staggering: Face() moves half a cell down, Cell()
+    half a cell up
+    =#
     step(::Cell) = 0.5
     step(::Face) = -0.5
     shift(d, s) = ntuple(e -> step(s) * (e == d), 3)
@@ -55,7 +57,7 @@ some_ops_bytes(a, b, v, i, j) = (some_ops(a, b, v, i, j); @allocated some_ops(a,
     # no allocations, products included
     @test some_ops_bytes(a2, b2, v, i, j) == 0
 
-    # inside @vec loops, with a SIMD range as the first index
+    # inside @vec loops, with a SIMD range as the first index: the same values as plain loops
     box = Box2D(Mx = 16, Mz = 4, boundary = (Periodic, Bounded))
     a, b = rand(ncells(box, 1), ncells(box, 2)), rand(ncells(box, 1), ncells(box, 2))
     out_vec, out_ref = alloc(Float64, nothing, box, (Face(), Cell())), alloc(Float64, nothing, box, (Face(), Cell()))
@@ -72,4 +74,11 @@ some_ops_bytes(a, b, v, i, j) = (some_ops(a, b, v, i, j); @allocated some_ops(a,
         out_ref[I, j] = ℑ(a, (1,), (Face(),), I, j) + δ((a, b), (1,), (Face(),), I, j) + ℑ((v, a), (1,), (Face(),), I, j)
     end
     @test out_vec == out_ref
+end
+
+@testset "spatial schemes" begin
+    @test operators(Centred2()) == (; ℑ, δ)
+    @test halo_width(Centred2()) == 1
+    @test check_halo(Box2D(Mx = 4, Mz = 4), Centred2())
+    @test_throws ErrorException check_halo(Box2D(Mx = 4, Mz = 4, Hz = 0), Centred2())     # no halo along z
 end

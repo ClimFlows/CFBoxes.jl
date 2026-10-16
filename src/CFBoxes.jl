@@ -1,29 +1,32 @@
+"""
+    CFBoxes
+
+Rectangular 2D and 3D boxes for finite-volume models on a C-grid: grids with halos, the interpolation and difference
+operators, wall boundary conditions, and schemes for the vortex force ω×u.
+"""
 module CFBoxes
 
 using ManagedLoops: @vec, @with
 
-# boundary topology exports
+# boundary topology
 export Periodic, Bounded
 
-# halo exports
-export periodize!
-
-# wall boundary condition exports
-export FreeSlip, NoStress, NoSlip, TangentialVelocity, Stress, Flux, HeatFlux, Value, Wall, isheat
-export BoxBoundaryConditions, discretize, check_tracers, bc_value, fill_velocity_halo!, fill_halo!, ZeroGradient
-export zero_halo!, zero_walls!, wall_sides
-
-# box exports
-export AbstractBox, AbstractBoxHalo, Box2D, Box3D
+# boxes and grids
+export AbstractBox, Box2D, Box3D
 export dims, halo_size, boundary_topology
 export ncells, nfaces, cells, faces, interior_cells, interior_faces
 export cellpoint, facepoint, cellgrid, facegrid, coordinates
-export Face, Cell, npoints, alloc, alloc!, interior, add_halo
+export Face, Cell, npoints, alloc, alloc!, interior
 
-# interpolation and difference exports
+# wall boundary conditions and halos
+export FreeSlip, NoStress, NoSlip, TangentialVelocity, Stress, Flux, HeatFlux, Value, Wall
+export BoxBoundaryConditions, discretize, check_tracers, bc_value, wall_sides
+export fill_velocity_halo!, fill_halo!, ZeroGradient, periodize!, zero_halo!, zero_walls!
+
+# interpolation and difference
 export ℑ, δ
 
-# scheme exports
+# schemes
 export SpatialScheme, Centred2, operators, halo_width, check_halo
 export VortexScheme, VortexEnergyCons, VortexEnstrophyCons, VortexEnergyEnstrophyCons, vortex_force!
 

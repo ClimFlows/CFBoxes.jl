@@ -1,9 +1,10 @@
-## schemes for the vortex force ω×u on the C-grid (Sadourny 1975, Arakawa & Lamb 1981); notation in vortex_force.jl
+# Schemes for the vortex force ω×u on the C-grid (Sadourny 1975, Arakawa & Lamb 1981); notation in vortex_force.jl
 
 """
     VortexScheme
 
-Discretisation of the vortex force ω×u: `VortexEnergyCons()`, `VortexEnstrophyCons()` or `VortexEnergyEnstrophyCons()`.
+Discretization of the vortex force ω×u (see `vortex_force!`): `VortexEnergyCons()`, `VortexEnstrophyCons()` or
+`VortexEnergyEnstrophyCons()`.
 """
 abstract type VortexScheme end
 
