@@ -1,311 +1,274 @@
-# Definition of box domains with halo cells for finite difference methods
-# - the following code assumes a centred finite difference scheme on a C-grid
+#=
+Boxes: M interior cells and H halo cells on each side along every dimension, numbered (x, z) in 2D and (x, y, z)
+in 3D. Indices run over the whole array, halo included: interior cell i is at index H + i.
+=#
 
 """
-    AbstractBox{Mx, My, Mz, Bx, By, Bz} <: FDDomain
+    AbstractBox{Mx, My, Mz, Bx, By, Bz}
 
-Abstract type representing a finite difference domain box.
-
-# Type Parameters
-- `Mx`: Number of cells in x-direction
-- `My`: Number of cells in y-direction
-- `Mz`: Number of cells in z-direction
-- `Bx`: Boundary topology in x-direction
-- `By`: Boundary topology in y-direction
-- `Bz`: Boundary topology in z-direction
+A rectangular box of `Mx × My × Mz` interior cells (`My = 0` in 2D), with boundary topology `Bx`, `By`, `Bz`
+(`Periodic` or `Bounded`; `By = Nothing` in 2D).
 """
 abstract type AbstractBox{Mx, My, Mz, Bx, By, Bz} end
 
 """
-    AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} <: AbstractBox{Mx, My, Mz, Bx, By, Bz}
+    Box2D(; Mx, Mz, Hx = 1, Hz = 1, boundary = (Periodic, Bounded))
 
-Abstract type representing a box with halo (ghost) cells for at least two dimensions.
-
-# Type Parameters
-- `Mx`: Number of cells in x-direction
-- `My`: Number of cells in y-direction
-- `Mz`: Number of cells in z-direction
-- `Hx`: Number of halo cells in x-direction
-- `Hy`: Number of halo cells in y-direction
-- `Hz`: Number of halo cells in z-direction
-- `Bx`: Boundary topology in x-direction
-- `By`: Boundary topology in y-direction
-- `Bz`: Boundary topology in z-direction
+2D box of `Mx × Mz` interior cells with `Hx`, `Hz` halo cells on each side, and the boundary topology `(Bx, Bz)`.
 """
-abstract type AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} <: AbstractBox{Mx, My, Mz, Bx, By, Bz} end
+struct Box2D{Mx, Mz, Hx, Hz, Bx, Bz} <: AbstractBox{Mx, 0, Mz, Bx, Nothing, Bz} end
+Box2D(; Mx, Mz, Hx = 1, Hz = 1, boundary = (Periodic, Bounded)) = Box2D{Mx, Mz, Hx, Hz, boundary[1], boundary[2]}()
 
 """
-    Box2D{Mx, Mz, Hx, Hz, Bx, Bz}
+    Box3D(; Mx, My, Mz, Hx = 1, Hy = 1, Hz = 1, boundary = (Periodic, Periodic, Bounded))
 
-A 2D rectangular box with lateral halo cells.
-
-# Type Parameters
-- `Mx`: Number of cells in x-direction
-- `Mz`: Number of cells in z-direction
-- `Hx`: Number of halo cells in x-direction
-- `Hz`: Number of halo cells in z-direction
-- `Bx`: Boundary topology in x-direction
-- `Bz`: Boundary topology in z-direction
-
-# Constructor
-    Box2D(; Mx, Mz, Hx=1, Hz=1, boundary=(Periodic, Bounded))
-
-Create a 2D box with specified dimensions and boundary conditions.
+3D box of `Mx × My × Mz` interior cells with `Hx`, `Hy`, `Hz` halo cells on each side, and the boundary topology
+`(Bx, By, Bz)`.
 """
-struct Box2D{Mx, Mz, Hx, Hz, Bx, Bz} <: AbstractBoxHalo{Mx, 0, Mz, Hx, 0, Hz, Bx, Nothing, Bz} end
-Box2D(; Mx, Mz, Hx=1, Hz=1, boundary=(Periodic, Bounded)) = Box2D{Mx, Mz, Hx, Hz, boundary[1], boundary[2]}()
+struct Box3D{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} <: AbstractBox{Mx, My, Mz, Bx, By, Bz} end
+Box3D(; Mx, My, Mz, Hx = 1, Hy = 1, Hz = 1, boundary = (Periodic, Periodic, Bounded)) =
+    Box3D{Mx, My, Mz, Hx, Hy, Hz, boundary[1], boundary[2], boundary[3]}()
 
 """
-    Box3D{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz}
+    dims(box) -> NTuple
 
-A 3D rectangular box with halo cells on all sides.
-
-# Type Parameters
-- `Mx`: Number of cells in x-direction
-- `My`: Number of cells in y-direction
-- `Mz`: Number of cells in z-direction
-- `Hx`: Number of halo cells in x-direction
-- `Hy`: Number of halo cells in y-direction
-- `Hz`: Number of halo cells in z-direction
-- `Bx`: Boundary topology in x-direction
-- `By`: Boundary topology in y-direction
-- `Bz`: Boundary topology in z-direction
-
-# Constructor
-    Box3D(; Mx, My, Mz, Hx=1, Hy=1, Hz=1, boundary=(Periodic, Periodic, Bounded))
-
-Create a 3D box with specified dimensions and boundary conditions.
-"""
-struct Box3D{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} <: AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} end
-Box3D(; Mx, My, Mz, Hx=1, Hy=1, Hz=1, boundary=(Periodic, Periodic, Bounded)) = Box3D{Mx, My, Mz, Hx, Hy, Hz, boundary[1], boundary[2], boundary[3]}()
-
-"""
-    xdim(box::AbstractBox) -> NTuple
-    ydim(box::AbstractBox) -> NTuple
-    zdim(box::AbstractBox) -> NTuple
-
-Get the dimensions (number of cells) of the primal grid of the box including halo cells.
-"""
-@inline xdim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} = 2Hx+Mx
-@inline ydim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} = 2Hy+My
-@inline zdim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} = 2Hz+Mz
-
-"""
-    Xdim(box::AbstractBox) -> NTuple
-    Ydim(box::AbstractBox) -> NTuple
-    Zdim(box::AbstractBox) -> NTuple
-
-Get the dimensions (number of cells) of the dual grid of the box including halo cells.
-"""
-@inline Xdim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Periodic, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, By, Bz} = 2Hx+Mx
-@inline Xdim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bounded, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, By, Bz} = 2Hx+Mx+1
-@inline Ydim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, Periodic, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, Bz} = 2Hy+My
-@inline Ydim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, Bounded, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, Bz} = 2Hy+My+1
-@inline Zdim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Periodic}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By} = 2Hz+Mz
-@inline Zdim(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bounded}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By} = 2Hz+Mz+1
-
-"""
-    xrange(box::AbstractBoxHalo) -> UnitRange
-    yrange(box::AbstractBoxHalo) -> UnitRange
-    zrange(box::AbstractBoxHalo) -> UnitRange
-
-Get the index range to use with centred finite difference operators onto the primal grid in the x/y/z-direction
-"""
-@inline xrange(box::AbstractBoxHalo) = 1:Xdim(box)-1
-@inline yrange(box::AbstractBoxHalo) = 1:Ydim(box)-1
-@inline zrange(box::AbstractBoxHalo) = 1:Zdim(box)-1
-
-"""
-    Xrange(box::AbstractBoxHalo) -> UnitRange
-    Yrange(box::AbstractBoxHalo) -> UnitRange
-    Zrange(box::AbstractBoxHalo) -> UnitRange
-
-Get the index range to use with centred finite difference operators onto the dual grid in the x/y/z-direction
-"""
-@inline Xrange(box::AbstractBoxHalo) = 2:xdim(box)
-@inline Yrange(box::AbstractBoxHalo) = 2:ydim(box)
-@inline Zrange(box::AbstractBoxHalo) = 2:zdim(box)
-
-"""
-    xrange_interior(box::AbstractBoxHalo) -> UnitRange
-    yrange_interior(box::AbstractBoxHalo) -> UnitRange
-    zrange_interior(box::AbstractBoxHalo) -> UnitRange
-
-Get the index range of the grid interior (excl. halo) in the x/y/z-direction
-"""
-@inline xrange_interior(box::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hx+1):(xdim(box)-Hx)
-@inline yrange_interior(box::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hy+1):(ydim(box)-Hy)
-@inline zrange_interior(box::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hz+1):(zdim(box)-Hz)
-
-"""
-    Xrange_interior(box::AbstractBoxHalo) -> UnitRange
-    Yrange_interior(box::AbstractBoxHalo) -> UnitRange
-    Zrange_interior(box::AbstractBoxHalo) -> UnitRange
-
-Get the index range of the dual grid interior (excl. halo) in the x/y/z-direction
-"""
-@inline Xrange_interior(box::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hx+1):(Xdim(box)-Hx)
-@inline Yrange_interior(box::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hy+1):(Ydim(box)-Hy)
-@inline Zrange_interior(box::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hz+1):(Zdim(box)-Hz)
-
-"""
-    dims(box::AbstractBox) -> NTuple
-
-Get the interior dimensions (number of cells) of the box excluding halo cells.
+Number of interior cells along each dimension.
 """
 @inline dims(::Box2D{Mx, Mz}) where {Mx, Mz} = (Mx, Mz)
 @inline dims(::Box3D{Mx, My, Mz}) where {Mx, My, Mz} = (Mx, My, Mz)
 
 """
-    halo_size(box::AbstractBox) -> NTuple
+    halo_size(box) -> NTuple
 
-Get the size of halo cells in each direction.
+Number of halo cells on each side, along each dimension.
 """
 @inline halo_size(::Box2D{Mx, Mz, Hx, Hz}) where {Mx, Mz, Hx, Hz} = (Hx, Hz)
 @inline halo_size(::Box3D{Mx, My, Mz, Hx, Hy, Hz}) where {Mx, My, Mz, Hx, Hy, Hz} = (Hx, Hy, Hz)
 
 """
-    interior(box::AbstractBox, data::Array) -> Array
+    boundary_topology(box) -> NTuple
 
-Extract the interior region of a data array by removing halo cells.
-"""
-interior(::Box2D{Mx, Mz, Hx, Hz}, data::Array) where {Mx, Mz, Hx, Hz} = data[1+Hx:end-Hx, 1+Hz:end-Hz]
-interior(::Box3D{Mx, My, Mz, Hx, Hy, Hz}, data::Array) where {Mx, My, Mz, Hx, Hy, Hz} = data[1+Hx:end-Hx, 1+Hy:end-Hy, 1+Hz:end-Hz]
-
-"""
-    add_halo(box::AbstractBox, data::Array) -> Array
-
-Add a halo around a data array.
-"""
-function add_halo(::Box2D{Mx, Mz, Hx, Hz}, data::Array{T, 2}) where {Mx, Mz, Hx, Hz, T}
-    Marr, Narr, = size(data)
-    data_halo = Array{T}(undef, Marr+2Hx, Narr+2Hz)
-    data_halo[1+Hx:Marr+Hx, 1+Hz:Narr+Hz] = data
-    return data_halo
-end
-function add_halo(::Box3D{Mx, My, Mz, Hx, Hy, Hz}, data::Array{T, 3}) where {Mx, My, Mz, Hx, Hy, Hz, T}
-    Marr, Narr, Parr = size(data)
-    data_halo = Array{T}(undef, Marr+2Hx, Narr+2Hy, Parr+2Hz)
-    data_halo[1+Hx:Marr+Hx, 1+Hy:Narr+Hy, 1+Hz:Parr+Hz] = data
-    return data_halo
-end
-
-"""
-    boundary_topology(box::AbstractBox) -> NTuple
-
-Get the boundary topology of the box in each direction.
+Boundary topology (`Periodic()` or `Bounded()`) along each dimension.
 """
 @inline boundary_topology(::Box2D{Mx, Mz, Hx, Hz, Bx, Bz}) where {Mx, Mz, Hx, Hz, Bx, Bz} = (Bx(), Bz())
-@inline boundary_topology(::Box3D{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} = (Bx(), By(), Bz())
+@inline boundary_topology(::Box3D{Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz}) where {Mx, My, Mz, Hx, Hy, Hz, Bx, By, Bz} =
+    (Bx(), By(), Bz())
+
+# Grid along one dimension d: a bounded dimension has one more face than cells (both walls), a periodic one as many
 
 """
-    xpoint(box::AbstractBoxHalo, dx, i::Int) -> Float64
-    ypoint(box::AbstractBoxHalo, dy, j::Int) -> Float64
-    zpoint(box::AbstractBoxHalo, dz, k::Int) -> Float64
+    Face()
 
-Get the coordinate of a point on the primal grid in the x/y/z-direction.
+Staggering on the faces along one dimension (see `Cell`). A tuple of `Face()`/`Cell()`, one per dimension, is a grid
+location, e.g. `(Face(), Cell())` for the u-faces of a 2D box (see `alloc`). The operators `ℑ` and `δ` take one per
+direction for the staggering of their result.
 """
-@inline xpoint(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}, dx, i::Int) where {Mx, My, Mz, Hx, Hy, Hz} = (i - Hx - 0.5) * dx
-@inline ypoint(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}, dy, j::Int) where {Mx, My, Mz, Hx, Hy, Hz} = (j - Hy - 0.5) * dy
-@inline zpoint(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}, dz, k::Int) where {Mx, My, Mz, Hx, Hy, Hz} = (k - Hz - 0.5) * dz
+struct Face end
 
 """
-    Xpoint(box::AbstractBoxHalo, dx, I::Int) -> Float64
-    Ypoint(box::AbstractBoxHalo, dy, J::Int) -> Float64
-    Zpoint(box::AbstractBoxHalo, dz, K::Int) -> Float64
+    Cell()
 
-Get the coordinate of a point on the dual grid in the x/y/z-direction.
+Staggering at the cell centers along one dimension (see `Face`).
 """
-@inline Xpoint(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}, dx, I::Int) where {Mx, My, Mz, Hx, Hy, Hz} = (I - Hx - 1.) * dx
-@inline Ypoint(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}, dy, J::Int) where {Mx, My, Mz, Hx, Hy, Hz} = (J - Hy - 1.) * dy
-@inline Zpoint(::AbstractBoxHalo{Mx, My, Mz, Hx, Hy, Hz}, dz, K::Int) where {Mx, My, Mz, Hx, Hy, Hz} = (K - Hz - 1.) * dz
+struct Cell end
 
 """
-    xgrid(box::AbstractBoxHalo, dx) -> Vector
-    ygrid(box::AbstractBoxHalo, dy) -> Vector
-    zgrid(box::AbstractBoxHalo, dz) -> Vector
+    extra_face(topology) -> Int
 
-Get the primal grid vectors of the box (incl. halo cells) in the x/y/z-direction.
+Number of faces beyond the cell count along a dimension: 1 if `Bounded` (both walls are faces), 0 if `Periodic`.
 """
-@inline xgrid(box::AbstractBoxHalo, dx) = [xpoint(box, dx, i) for i in 1:xdim(box)]
-@inline ygrid(box::AbstractBoxHalo, dy) = [ypoint(box, dy, j) for j in 1:ydim(box)]
-@inline zgrid(box::AbstractBoxHalo, dz) = [zpoint(box, dz, k) for k in 1:zdim(box)]
+@inline extra_face(::Periodic) = 0
+@inline extra_face(::Bounded) = 1
 
 """
-    Xgrid(box::AbstractBoxHalo, dx) -> Vector
-    Ygrid(box::AbstractBoxHalo, dy) -> Vector
-    Zgrid(box::AbstractBoxHalo, dz) -> Vector
+    ncells(box, d) -> Int
 
-Get the dual grid vectors of the box (incl. halo cells) in the x/y/z-direction.
+Number of cells along dimension `d`, halo included.
 """
-@inline Xgrid(::AbstractBoxHalo, dx) = [Xpoint(box, dz, I) for I in 1:Xdim(box)]
-@inline Ygrid(::AbstractBoxHalo, dy) = [Ypoint(box, dy, J) for J in 1:Ydim(box)]
-@inline Zgrid(::AbstractBoxHalo, dz) = [Zpoint(box, dz, K) for K in 1:Zdim(box)]
+@inline ncells(box::AbstractBox, d) = dims(box)[d] + 2halo_size(box)[d]
 
 """
-    xgrid_interior(box::AbstractBox, dx) -> Vector
-    ygrid_interior(box::AbstractBox, dy) -> Vector
-    zgrid_interior(box::AbstractBox, dz) -> Vector
+    nfaces(box, d) -> Int
 
-Get the primal grid vectors of the box interior (excl. halo) in the x/y/z-direction.
+Number of faces along dimension `d`, halo included: one more than `ncells` if `d` is bounded.
 """
-@inline xgrid_interior(box, dx) = xgrid(box, dx)[xrange_interior(box)]
-@inline ygrid_interior(box, dy) = ygrid(box, dy)[yrange_interior(box)]
-@inline zgrid_interior(box, dz) = zgrid(box, dz)[zrange_interior(box)]
+@inline nfaces(box::AbstractBox, d) = ncells(box, d) + extra_face(boundary_topology(box)[d])
 
 """
-    Xgrid_interior(box::AbstractBox, dx) -> Vector
-    Ygrid_interior(box::AbstractBox, dy) -> Vector
-    Zgrid_interior(box::AbstractBox, dz) -> Vector
+    cells(box, d) -> UnitRange
 
-Get the dual grid vectors of the box interior (excl. halo) in the x/y/z-direction.
+Indices along dimension `d`, halo included, at which a stencil onto the cells (`ℑ`, `δ` with `Cell()` along `d`)
+stays inside the array: the loop range of the kernels that write at the cells.
 """
-@inline Xgrid_interior(box, dx) = Xgrid(box, dx)[Xrange_interior(box)]
-@inline Ygrid_interior(box, dy) = Ygrid(box, dy)[Yrange_interior(box)]
-@inline Zgrid_interior(box, dz) = Zgrid(box, dz)[Zrange_interior(box)]
+@inline cells(box::AbstractBox, d) = 1:nfaces(box, d)-1
 
 """
-    alloc_xz(F::Type, box::Box2D, dims...) -> Array
-    alloc_Xz(F::Type, box::Box2D, dims...) -> Array
-    alloc_xZ(F::Type, box::Box2D, dims...) -> Array
-    alloc_XZ(F::Type, box::Box2D, dims...) -> Array
+    faces(box, d) -> UnitRange
 
-- `alloc_xz` - allocate primal grid in x and z
-- `alloc_Xz` - allocate dual grid in x, primal grid in z
-- `alloc_xZ` - allocate primal grid in x, dual grid in z
-- `alloc_XZ` - allocate dual grid in x and z
+Indices along dimension `d`, halo included, at which a stencil onto the faces (`ℑ`, `δ` with `Face()` along `d`)
+stays inside the array: the loop range of the kernels that write on the faces.
 """
-@inline alloc_xz(F::Type, box::Box2D, dims...) = Array{F}(undef, xdim(box), zdim(box), dims...)
-@inline alloc_Xz(F::Type, box::Box2D, dims...) = Array{F}(undef, Xdim(box), zdim(box), dims...)
-@inline alloc_xZ(F::Type, box::Box2D, dims...) = Array{F}(undef, xdim(box), Zdim(box), dims...)
-@inline alloc_XZ(F::Type, box::Box2D, dims...) = Array{F}(undef, Xdim(box), Zdim(box), dims...)
+@inline faces(box::AbstractBox, d) = 2:ncells(box, d)
 
 """
-    alloc_xyz(F::Type, box::Box2D, dims...) -> Array
-    alloc_Xyz(F::Type, box::Box2D, dims...) -> Array
-    alloc_xYz(F::Type, box::Box2D, dims...) -> Array
-    alloc_xyZ(F::Type, box::Box2D, dims...) -> Array
-    alloc_XYz(F::Type, box::Box2D, dims...) -> Array
-    alloc_xYZ(F::Type, box::Box2D, dims...) -> Array
-    alloc_XyZ(F::Type, box::Box2D, dims...) -> Array
-    alloc_xYZ(F::Type, box::Box2D, dims...) -> Array
-    alloc_XYZ(F::Type, box::Box2D, dims...) -> Array
+    interior_cells(box, d) -> UnitRange
 
-- `alloc_xyz` - allocate primal grid in x, y, z
-- `alloc_Xyz` - allocate dual grid in x, primal grid in y, z
-- `alloc_xYz` - allocate primal grid in x, z, dual grid in y
-- `alloc_xyZ` - allocate primal grid in x, y, dual grid in z
-- `alloc_XYz` - allocate dual grid in x, y, primal grid in z
-- `alloc_xYZ` - allocate primal grid in x, dual grid in y, z
-- `alloc_XyZ` - allocate primal grid in y, dual grid in x, z
-- `alloc_xYZ` - allocate primal grid in x, dual grid in y and z
-- `alloc_XYZ` - allocate dual grid in x, y, z
+Indices of the interior cells along dimension `d`.
 """
-@inline alloc_xyz(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), ydim(box), zdim(box), dims...)
-@inline alloc_Xyz(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), ydim(box), zdim(box), dims...)
-@inline alloc_xYz(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), Ydim(box), zdim(box), dims...)
-@inline alloc_xyZ(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), ydim(box), Zdim(box), dims...)
-@inline alloc_XYz(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), Ydim(box), zdim(box), dims...)
-@inline alloc_XyZ(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), ydim(box), Zdim(box), dims...)
-@inline alloc_xYZ(F::Type, box::Box3D, dims...) = Array{F}(undef, xdim(box), Ydim(box), Zdim(box), dims...)
-@inline alloc_XYZ(F::Type, box::Box3D, dims...) = Array{F}(undef, Xdim(box), Ydim(box), Zdim(box), dims...)
+@inline interior_cells(box::AbstractBox, d) = halo_size(box)[d]+1 : halo_size(box)[d]+dims(box)[d]
+
+"""
+    interior_faces(box, d) -> UnitRange
+
+Indices of the interior faces along dimension `d`. When `d` is bounded, the first and last are the walls.
+"""
+@inline interior_faces(box::AbstractBox, d) =
+    halo_size(box)[d]+1 : halo_size(box)[d]+dims(box)[d]+extra_face(boundary_topology(box)[d])
+
+"""
+    cellpoint(box, Δ, d, i)
+
+Coordinate of the center of cell `i` along dimension `d`, with grid spacing `Δ`; the first interior face is at 0.
+"""
+@inline cellpoint(box::AbstractBox, Δ, d, i) = (i - halo_size(box)[d] - 0.5) * Δ
+
+"""
+    facepoint(box, Δ, d, i)
+
+Coordinate of face `i` along dimension `d`, with grid spacing `Δ`; the first interior face (the first wall, if
+bounded) is at 0.
+"""
+@inline facepoint(box::AbstractBox, Δ, d, i) = (i - halo_size(box)[d] - 1) * Δ
+
+"""
+    cellgrid(box, Δ, d) -> Vector
+
+Coordinates of all the cell centers along dimension `d`, halo included (see `cellpoint`).
+"""
+cellgrid(box::AbstractBox, Δ, d) = [cellpoint(box, Δ, d, i) for i in 1:ncells(box, d)]
+
+"""
+    facegrid(box, Δ, d) -> Vector
+
+Coordinates of all the faces along dimension `d`, halo included (see `facepoint`).
+"""
+facegrid(box::AbstractBox, Δ, d) = [facepoint(box, Δ, d, i) for i in 1:nfaces(box, d)]
+
+"""
+    npoints(box, Face(), d) -> Int
+    npoints(box, Cell(), d) -> Int
+
+Number of points along dimension `d` of an array on the faces or at the cell centers, halo included.
+"""
+@inline npoints(box::AbstractBox, ::Face, d) = nfaces(box, d)
+@inline npoints(box::AbstractBox, ::Cell, d) = ncells(box, d)
+
+# Arrays on a grid location
+
+"""
+    interior(box, a) -> SubArray
+
+View of the interior of the array `a`, on any grid location: its halo removed (on the faces of a bounded dimension,
+both walls are kept).
+"""
+interior(::Box2D{Mx, Mz, Hx, Hz}, a::AbstractArray) where {Mx, Mz, Hx, Hz} = @view a[1+Hx:end-Hx, 1+Hz:end-Hz]
+interior(::Box3D{Mx, My, Mz, Hx, Hy, Hz}, a::AbstractArray) where {Mx, My, Mz, Hx, Hy, Hz} =
+    @view a[1+Hx:end-Hx, 1+Hy:end-Hy, 1+Hz:end-Hz]
+
+"""
+    dimensions(location::Tuple) -> NTuple
+
+The dimension numbers `(1, 2, …)` of a grid location.
+"""
+@inline dimensions(location::Tuple) = ntuple(identity, Val(length(location)))
+
+"""
+    coordinates(box, spacing, location::Tuple) -> Tuple
+
+Coordinates of the interior points of the grid `location`, one vector per dimension, matching `interior(box, a)` for
+an array `a` on that location. `spacing` holds the grid spacing along each dimension, e.g. `(dx, dz)` in 2D.
+"""
+coordinates(box::AbstractBox, spacing, location::Tuple) =
+    map((s, d) -> interior_grid(box, spacing[d], s, d), location, dimensions(location))
+
+"""
+    interior_grid(box, Δ, s, d) -> Vector
+
+Coordinates of the interior points along dimension `d` of an array with staggering `s` (`Face()` or `Cell()`).
+"""
+interior_grid(box, Δ, ::Face, d) = facegrid(box, Δ, d)[interior_faces(box, d)]
+interior_grid(box, Δ, ::Cell, d) = cellgrid(box, Δ, d)[interior_cells(box, d)]
+
+"""
+    alloc(F::Type, mgr, box, location::Tuple, dims...) -> Array
+
+Zero array of element type `F` on the grid `location`: one `Face()` or `Cell()` per dimension, e.g. `(Cell(), Cell())`
+for the cells, `(Face(), Cell())` the u-faces, `(Cell(), Face())` the w-faces and `(Face(), Face())` the vertices of a
+2D box. Trailing `dims` add extra dimensions (e.g. tracers). Starting from zero defines the halo points that no kernel
+writes (e.g. beyond walls).
+
+The loop manager `mgr` writes the zeros (`nothing`: serially), its threads sharing out the last box dimension as in
+the kernels, so that on a multi-socket node each thread's memory pages are placed on its own socket.
+"""
+function alloc(F::Type, mgr, box::AbstractBox, location::Tuple, dims...)
+    a = Array{F}(undef, map((s, d) -> npoints(box, s, d), location, dimensions(location))..., dims...)
+    return zero!(a, mgr, box)
+end
+
+"""
+    alloc!(a, F::Type, mgr, box, location::Tuple, dims...) -> Array
+
+Return `a` if it is an array, else a new array from `alloc` (e.g. for `a = void` from MutatingOrNot): how kernels get
+their scratch space, as `similar!` does.
+"""
+alloc!(a::AbstractArray, F::Type, mgr, box::AbstractBox, location::Tuple, dims...) = a
+alloc!(_, F::Type, mgr, box::AbstractBox, location::Tuple, dims...) = alloc(F, mgr, box, location, dims...)
+
+"""
+    zero!(a, mgr, box) -> a
+
+Set `a` to zero with the threads of `mgr`, each on the levels (last box dimension) it handles in the kernels; trailing
+extra dimensions are done one at a time.
+"""
+function zero!(a, mgr, ::Box2D)
+    # plain loops: @vec cannot store a value independent of i
+    levels = reshape(a, size(a, 1), size(a, 2), :)                         # (x, z, extra)
+    for n in axes(levels, 3)
+        @with mgr, let (irange, jrange) = (axes(levels, 1), axes(levels, 2))
+            @inbounds for j in jrange, i in irange
+                levels[i, j, n] = 0
+            end
+        end
+    end
+    return a
+end
+function zero!(a, mgr, ::Box3D)
+    levels = reshape(a, size(a, 1), size(a, 2), size(a, 3), :)             # (x, y, z, extra)
+    for n in axes(levels, 4)
+        @with mgr, let (irange, jrange, krange) = (axes(levels, 1), axes(levels, 2), axes(levels, 3))
+            @inbounds for k in krange, j in jrange, i in irange
+                levels[i, j, k, n] = 0
+            end
+        end
+    end
+    return a
+end
+
+# Indices across one dimension d, known at compile time
+
+"""
+    slice(a, ::Val{d}) -> CartesianIndices
+
+The indices of `a` with dimension `d` removed: one per line of points along `d` (e.g. per position along a wall
+normal to `d`). See `across`.
+"""
+@inline slice(a::AbstractArray{T, N}, ::Val{d}) where {T, N, d} =
+    CartesianIndices((ntuple(e -> axes(a, e), Val(d-1))..., ntuple(e -> axes(a, d+e), Val(N-d))...))
+
+"""
+    across(I, ::Val{d}, k) -> CartesianIndex
+
+The index of `a` that puts `k` at dimension `d` of the `slice` index `I`.
+"""
+@inline across(I::CartesianIndex{N}, ::Val{d}, k) where {N, d} =
+    CartesianIndex(ntuple(e -> I[e], Val(d-1))..., k, ntuple(e -> I[d-1+e], Val(N-d+1))...)
