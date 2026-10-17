@@ -20,7 +20,7 @@ velocity_halo_bytes(bcs, box, velocity, spacing, μ) =
         @test_throws ErrorException check_tracers(BoxBoundaryConditions(box; bottom = heat_in(2), top = wall(NoSlip())), 2)
         # a HeatFlux stays a HeatFlux when discretized; NoStress is FreeSlip
         bcs = discretize(BoxBoundaryConditions(box; bottom = heat_in(1), top = wall(NoSlip())), box, (0.1, 0.1))
-        @test CFBoxes.isheat(bcs.walls[2][1].tracers[1]) && !CFBoxes.isheat(bcs.walls[2][1].tracers[2])
+        @test CGrid.isheat(bcs.walls[2][1].tracers[1]) && !CGrid.isheat(bcs.walls[2][1].tracers[2])
         @test NoStress() === FreeSlip()
     end
 

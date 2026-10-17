@@ -1,7 +1,7 @@
 name = "CFBoxes"
 uuid = "435ea534-530f-4103-a4e2-07b06daf33cf"
 authors = ["Benedict Hatton, Thomas Dubos <thomas.dubos@polytechnique.edu>"]
-version = "0.0.4"
+version = "0.0.5"
 
 [deps]
 ManagedLoops = "36a4119d-6b73-4371-88fe-ba2d91f5495d"
