@@ -4,7 +4,7 @@ using Documenter
 DocMeta.setdocmeta!(CFBoxes, :DocTestSetup, :(using CFBoxes); recursive=true)
 
 makedocs(;
-    modules=[CFBoxes],
+    modules=[CFBoxes, CFBoxes.CGrid],
     authors="Thomas Dubos <thomas.dubos@polytechnique.edu> and contributors",
     sitename="CFBoxes.jl",
     format=Documenter.HTML(;

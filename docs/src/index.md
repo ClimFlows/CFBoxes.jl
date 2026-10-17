@@ -6,19 +6,25 @@ CurrentModule = CFBoxes
 
 Documentation for [CFBoxes](https://github.com/dubosipsl/CFBoxes.jl).
 
+```@docs
+CFBoxes
+```
+
 ```@index
 ```
 
-## Public
+## CGrid
+
+### Public
 
 ```@autodocs
-Modules = [CFBoxes]
+Modules = [CFBoxes.CGrid]
 Private = false
 ```
 
-## Internals
+### Internals
 
 ```@autodocs
-Modules = [CFBoxes]
+Modules = [CFBoxes.CGrid]
 Public = false
 ```
