@@ -69,7 +69,7 @@ array, a vertical profile (a vector, read along z), or a tuple of factors multip
 Base.@propagate_inbounds ℑ(a, ::Tuple{}, ::Tuple{}, I...) = point(a, I...)
 Base.@propagate_inbounds function ℑ(a, (d, dims...)::Tuple, (s, to...)::Tuple, I...)
     lo, hi = stencil_points(s, Val(d), I...)
-    return 0.5 * (ℑ(a, dims, to, lo...) + ℑ(a, dims, to, hi...))
+    return (ℑ(a, dims, to, lo...) + ℑ(a, dims, to, hi...)) / 2
 end
 
 """

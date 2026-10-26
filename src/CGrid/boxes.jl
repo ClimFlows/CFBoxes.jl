@@ -130,7 +130,7 @@ Indices of the interior faces along dimension `d`. When `d` is bounded, the firs
 
 Coordinate of the center of cell `i` along dimension `d`, with grid spacing `Δ`; the first interior face is at 0.
 """
-@inline cellpoint(box::AbstractBox, Δ, d, i) = (i - halo_size(box)[d] - 0.5) * Δ
+@inline cellpoint(box::AbstractBox, Δ, d, i) = (2(i - halo_size(box)[d]) - 1) * Δ / 2
 
 """
     facepoint(box, Δ, d, i)
