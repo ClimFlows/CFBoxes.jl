@@ -25,6 +25,8 @@
                 @test interior_faces(box, d) == h+1:h+m+bounded
                 # the first interior face is at 0, cell centers half a cell further; the last face is at mΔ if bounded
                 @test cellpoint(box, Δ, d, h+1) ≈ Δ / 2
+                # in the float type of the spacing
+                @test all(F -> cellpoint(box, F(Δ), d, h+1) isa F && facepoint(box, F(Δ), d, h+1) isa F, (Float32, BigFloat))
                 @test facepoint(box, Δ, d, first(interior_faces(box, d))) ≈ 0
                 @test facepoint(box, Δ, d, last(interior_faces(box, d))) ≈ (m - !bounded) * Δ
                 @test cellgrid(box, Δ, d)[interior_cells(box, d)] ≈ ((1:m) .- 0.5) .* Δ

@@ -21,6 +21,8 @@ some_ops_bytes(a, b, v, i, j) = (some_ops(a, b, v, i, j); @allocated some_ops(a,
     @test ℑ(a2, (2,), (Cell(),), i, j) == lin2(i, j + 0.5) && ℑ(a2, (2,), (Face(),), i, j) == lin2(i, j - 0.5)
     @test ℑ(a2, (1, 2), (Cell(), Cell()), i, j) == lin2(i + 0.5, j + 0.5) && ℑ(a2, (1, 2), (Cell(), Face()), i, j) == lin2(i + 0.5, j - 0.5)
     @test ℑ(a2, (1, 2), (Face(), Cell()), i, j) == lin2(i - 0.5, j + 0.5) && ℑ(a2, (1, 2), (Face(), Face()), i, j) == lin2(i - 0.5, j - 0.5)
+    # in the float type of the array
+    @test all(F -> ℑ(F.(a2), (1, 2), (Cell(), Face()), i, j) isa F, (Float32, BigFloat))
     @test δ(a2, (1,), (Cell(),), i, j) == δ(a2, (1,), (Face(),), i, j) == 2 && δ(a2, (2,), (Cell(),), i, j) == δ(a2, (2,), (Face(),), i, j) == 3
 
     #=
