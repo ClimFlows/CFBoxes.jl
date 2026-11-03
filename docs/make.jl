@@ -8,7 +8,7 @@ makedocs(;
     authors="Thomas Dubos <thomas.dubos@polytechnique.edu> and contributors",
     sitename="CFBoxes.jl",
     format=Documenter.HTML(;
-        canonical="https://dubosipsl.github.io/CFBoxes.jl",
+        canonical="https://ClimFlows.github.io/CFBoxes.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -18,6 +18,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/dubosipsl/CFBoxes.jl",
+    repo="github.com/ClimFlows/CFBoxes.jl",
     devbranch="main",
 )
